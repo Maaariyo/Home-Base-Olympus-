@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-paper: #f7f6f3;
+  --color-ink: #1f2328;
+  --color-muted: #6b7075;
+  --color-line: #e7e5e0;
+  --color-accent: #0c8599;
+  --color-card: #ffffff;
+  --color-on-ink: #ffffff;
+  --color-danger: #c92a2a;
+  --color-warn: #7c4a03;
+  --color-warn-bg: #fff8e1;
+  --color-ok: #2b8a3e;
+  --color-ok-bg: #ebfbee;
+}
+
+/* Dark mode follows the device setting. Attendance band colours stay fixed on purpose. */
+:root {
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: #131518;
+    --color-card: #1c1f23;
+    --color-ink: #e9ecef;
+    --color-on-ink: #131518;
+    --color-muted: #9aa0a6;
+    --color-line: #2e3238;
+    --color-accent: #3bc9db;
+    --color-danger: #ff8787;
+    --color-warn: #ffd43b;
+    --color-warn-bg: rgba(250, 176, 5, 0.12);
+    --color-ok: #8ce99a;
+    --color-ok-bg: rgba(64, 192, 87, 0.12);
+  }
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: var(--font-sans);
+  overscroll-behavior-y: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+@keyframes cp-sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes cp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-sheet {
+  animation: cp-sheet-up 0.22s ease-out;
+}
+.animate-fade {
+  animation: cp-fade 0.18s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-sheet,
+  .animate-fade {
+    animation: none;
+  }
+}

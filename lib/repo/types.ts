@@ -1,0 +1,38 @@
+import type { PlannedNotification } from "../reminders";
+import type { Data, Settings, TableName, Tables } from "../types";
+
+export type AuthState = { kind: "signed-out" } | { kind: "signed-in"; email: string };
+
+/** The row changed or was deleted on another device since this one loaded it. */
+export class ConflictError extends Error {
+  constructor() {
+    super("This changed on another device. The latest version is loaded; please try again.");
+  }
+}
+
+export type NewRow<T extends TableName> = Omit<Tables[T], "created_at" | "updated_at"> & { created_at?: string };
+
+/** Everything the UI does to data goes through this. LocalRepo = demo (this browser), SupabaseRepo = hosted. */
+export interface Repo {
+  readonly mode: "demo" | "supabase";
+  getAuth(): Promise<AuthState>;
+  signIn(email: string, password: string): Promise<void>;
+  /** "check-email" when the Supabase project requires email confirmation. */
+  signUp(email: string, password: string): Promise<"signed-in" | "check-email">;
+  signOut(): Promise<void>;
+  onAuthChange(cb: () => void): () => void;
+
+  load(): Promise<Data>;
+  insert<T extends TableName>(table: T, row: NewRow<T>): Promise<void>;
+  /** Saves only if `seen` is still the latest version; otherwise throws ConflictError. */
+  update<T extends TableName>(table: T, seen: Tables[T], patch: Partial<Tables[T]>): Promise<void>;
+  /** Deletes always win: a delete never needs a version check. */
+  remove(table: TableName, id: string): Promise<void>;
+  saveSettings(s: Settings): Promise<void>;
+  /** Import: replaces every row this user owns. */
+  replaceAll(data: Data): Promise<void>;
+
+  /** Replaces the planned (unsent) reminders on the server. No-op in demo mode. */
+  syncNotifications(list: PlannedNotification[]): Promise<void>;
+  savePushSubscription(sub: PushSubscriptionJSON): Promise<void>;
+}
