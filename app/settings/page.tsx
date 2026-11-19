@@ -35,7 +35,7 @@ export default function SettingsPage() {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `campus-planner-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `home-base-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -46,7 +46,7 @@ export default function SettingsPage() {
       parsed = JSON.parse(await f.text());
       if (!TABLES.every((t) => Array.isArray(parsed[t]))) throw new Error();
     } catch {
-      return toast("That file is not a Campus Planner backup.", "error");
+      return toast("That file is not a Home Base backup.", "error");
     }
     if (confirm("Replace everything in this account with the backup? This cannot be undone.")) await run((r) => r.replaceAll(parsed), "Backup imported");
   };

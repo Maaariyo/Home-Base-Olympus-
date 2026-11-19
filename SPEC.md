@@ -1,4 +1,6 @@
-# Campus Planner: web platform spec
+# Home Base (Olympus): web platform spec
+
+Formerly "Campus Planner".
 
 Supersedes the Android build spec of 18 Nov 2026. Same features, delivered as a hosted website instead of a native app.
 

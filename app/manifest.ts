@@ -4,8 +4,8 @@ export const dynamic = "force-static";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Campus Planner",
-    short_name: "Planner",
+    name: "Home Base (Olympus)",
+    short_name: "Home Base",
     description: "Tasks, calendar and attendance in one place.",
     start_url: "/",
     display: "standalone",

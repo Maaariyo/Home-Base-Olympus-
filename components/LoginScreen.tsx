@@ -33,7 +33,7 @@ export function LoginScreen() {
         }}
       >
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Campus Planner</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">Home Base (Olympus)</h1>
           <p className="mt-1 text-muted">Tasks, calendar and attendance in one place.</p>
         </div>
         <Field label="Email">

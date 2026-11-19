@@ -3,9 +3,9 @@
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 
-select cron.unschedule('campus-planner-reminders') where exists (select 1 from cron.job where jobname = 'campus-planner-reminders');
+select cron.unschedule('home-base-reminders') where exists (select 1 from cron.job where jobname = 'home-base-reminders');
 select cron.schedule(
-  'campus-planner-reminders',
+  'home-base-reminders',
   '* * * * *',
   $$ select net.http_post(
        url := 'https://YOUR-PROJECT-REF.supabase.co/functions/v1/push',

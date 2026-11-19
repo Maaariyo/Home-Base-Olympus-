@@ -1,4 +1,4 @@
--- Campus Planner schema. Paste into Supabase: SQL Editor -> New query -> Run.
+-- Home Base (Olympus) schema. Paste into Supabase: SQL Editor -> New query -> Run.
 -- Every table is private to its owner: Row Level Security allows only rows where user_id = auth.uid().
 -- Safe to re-run: tables are created only if missing; policies and triggers are replaced.
 

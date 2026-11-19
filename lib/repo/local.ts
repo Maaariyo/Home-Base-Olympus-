@@ -2,7 +2,7 @@ import { DEFAULT_SETTINGS, TABLES, type Data, type Settings, type TableName, typ
 import { seedData } from "./seed";
 import { ConflictError, type AuthState, type NewRow, type Repo } from "./types";
 
-const KEY = "campus-planner-demo-v1";
+const KEY = "home-base-demo-v1";
 
 /** Demo mode: all data lives in this browser's localStorage. */
 export class LocalRepo implements Repo {

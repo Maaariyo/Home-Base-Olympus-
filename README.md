@@ -1,4 +1,4 @@
-# Campus Planner
+# Home Base (Olympus)
 
 Tasks, calendar and attendance for one student, as a website. Works on phone and desktop, installs to the home screen, and sends reminders through web push.
 

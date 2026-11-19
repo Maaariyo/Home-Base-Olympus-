@@ -48,7 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="flex h-dvh overflow-hidden">
       <aside className="hidden w-56 shrink-0 flex-col border-r border-line bg-card px-3 py-4 md:flex">
         <Link href="/" className="px-2 pb-6 text-lg font-extrabold tracking-tight">
-          Campus Planner
+          Home Base <span className="block text-sm font-semibold text-muted">Olympus</span>
         </Link>
         <nav className="space-y-1">
           {[...NAV, ...MORE].map(({ href, label, Icon }) => (

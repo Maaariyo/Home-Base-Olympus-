@@ -8,9 +8,9 @@ import "./globals.css";
 const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope" });
 
 export const metadata: Metadata = {
-  title: "Campus Planner",
+  title: "Home Base (Olympus)",
   description: "Tasks, calendar and attendance in one place.",
-  appleWebApp: { capable: true, title: "Planner", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "Home Base", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
