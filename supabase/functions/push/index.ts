@@ -6,7 +6,9 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3.6.7";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const sb = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+// Supabase retires the legacy service_role key by the end of 2026: prefer the new secret key when present.
+const secretKeys = Deno.env.get("SUPABASE_SECRET_KEYS");
+const sb = createClient(SUPABASE_URL, secretKeys ? JSON.parse(secretKeys).default : Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 webpush.setVapidDetails(Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@example.com", Deno.env.get("VAPID_PUBLIC_KEY")!, Deno.env.get("VAPID_PRIVATE_KEY")!);
 const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
 const CORS = { "Access-Control-Allow-Origin": "*" };

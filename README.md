@@ -27,7 +27,7 @@ Open http://localhost:3000. With no database connected, the site runs in **demo 
 1. Create a project at [supabase.com](https://supabase.com). Pick the **Mumbai (ap-south-1)** region.
 2. **SQL Editor → New query**: paste all of [`supabase/schema.sql`](supabase/schema.sql) and press **Run**.
 3. **Authentication → Sign In / Providers → Email**: for a personal planner, turn **Confirm email** off. Supabase's built-in email sender allows only a few emails per hour.
-4. **Project Settings**: copy the Project URL and the publishable (anon) key into `.env.local`, using [`.env.example`](.env.example) as the template.
+4. Click **Connect** at the top of the project page (or **Settings → API Keys**): copy the Project URL and the **publishable** key (`sb_publishable_…`) into `.env.local`, using [`.env.example`](.env.example) as the template. Never use a secret key in the site.
 
 Run `npm run dev` again. You now get a sign-in screen; each account sees only its own data.
 
