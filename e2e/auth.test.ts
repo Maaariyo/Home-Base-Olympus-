@@ -30,13 +30,13 @@ const user = {
 function accessToken() {
   const part = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const exp = Math.floor(Date.now() / 1000) + 3600;
-  return `${part({ alg: "HS256", typ: "JWT" })}.${part({ sub: user.id, email: user.email, role: "authenticated", aud: "authenticated", exp, session_id: "s1" })}.signature`;
+  return `${part({ alg: "HS256", typ: "JWT" })}.${part({ sub: user.id, email: user.email, role: "authenticated", aud: "authenticated", exp, session_id: "s1" })}.${Buffer.alloc(32, 7).toString("base64url")}`; // a well-formed (unverified) signature, as real tokens have
 }
 
 const session = () => ({ access_token: accessToken(), token_type: "bearer", expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, refresh_token: "refresh", user });
 
 /** Answers Supabase Auth and REST calls; returns the list of calls made. */
-async function mockSupabase(page: Page, { signupDisabled = false } = {}) {
+async function mockSupabase(page: Page, { signupDisabled = false, recoverError = "" } = {}) {
   const calls: string[] & { offline?: boolean } = [];
   await page.route("http://supabase.test/**", async (route) => {
     if (calls.offline) return route.abort("internetdisconnected");
@@ -50,7 +50,7 @@ async function mockSupabase(page: Page, { signupDisabled = false } = {}) {
     if (key === "POST /auth/v1/signup") {
       return signupDisabled ? json(422, { code: 422, error_code: "signup_disabled", msg: "Signups not allowed for this instance" }) : json(200, session());
     }
-    if (key === "POST /auth/v1/recover") return json(200, {});
+    if (key === "POST /auth/v1/recover") return recoverError ? json(400, { code: 400, msg: recoverError }) : json(200, {});
     if (key === "POST /auth/v1/token") return json(200, session());
     if (key === "GET /auth/v1/user" || key === "PUT /auth/v1/user") return json(200, user);
     if (key === "POST /auth/v1/logout") return route.fulfill({ status: 204, headers: cors });
@@ -61,7 +61,7 @@ async function mockSupabase(page: Page, { signupDisabled = false } = {}) {
   return calls;
 }
 
-async function open(hash = "", options: { signupDisabled?: boolean } = {}) {
+async function open(hash = "", options: { signupDisabled?: boolean; recoverError?: string } = {}) {
   const { page, errors } = await openPage(browser);
   const calls = await mockSupabase(page, options);
   await page.goto(`${site.url}/${hash}`);
@@ -164,5 +164,41 @@ test("signing out removes the offline copy from the device", async () => {
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.getByRole("button", { name: "Sign in" }).waitFor();
   assert.equal(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("home-base-cache:")).length), 0);
+  await page.context().close();
+});
+
+test("a crafted link carrying someone's session (not a reset link) does not sign you in", async () => {
+  const params = new URLSearchParams({ access_token: accessToken(), refresh_token: "refresh", token_type: "bearer", expires_in: "3600" });
+  const { page, calls } = await open(`#${params}`);
+  await page.getByRole("button", { name: "Sign in" }).waitFor();
+  assert.ok(!calls.includes("GET /auth/v1/user"), "the tokens in the link were never used");
+  assert.equal(new URL(page.url()).hash, "", "the tokens are removed from the address bar");
+  await page.context().close();
+});
+
+test("text from a link is never shown on the page", async () => {
+  const { page } = await open("#error=access_denied&error_description=Call+our+support+on+evil.example");
+  await page.getByText("That link didn't work. Request a new one.").waitFor();
+  assert.equal(await page.getByText(/evil\.example/).count(), 0);
+  await page.context().close();
+});
+
+test("a reset request gives the same answer whether or not the account exists", async () => {
+  const { page } = await open("", { recoverError: "Email address not authorized" });
+  await page.getByRole("button", { name: "Forgot password?" }).click();
+  await page.getByLabel("Email").fill("member@example.com");
+  await page.getByRole("button", { name: "Send reset link" }).click();
+  await page.getByText(/If an account exists for that email, a reset link is on its way/).waitFor();
+  assert.equal(await page.getByText(/not authori/i).count(), 0);
+  await page.context().close();
+});
+
+test("the signed-in account is shown, so a wrong account is noticed", async () => {
+  const { page } = await openPage(browser, { viewport: { width: 1280, height: 800 } });
+  await mockSupabase(page);
+  await page.goto(`${site.url}/`);
+  await signIn(page);
+  await page.getByText("Signed in as").waitFor();
+  await page.getByText(user.email).first().waitFor();
   await page.context().close();
 });

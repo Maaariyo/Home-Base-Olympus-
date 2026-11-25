@@ -172,3 +172,57 @@ begin
     execute format('create trigger touch before update on public.%I for each row execute function public.touch_updated_at()', t);
   end loop;
 end $$;
+
+-- Same-owner references. Row Level Security does not apply to foreign-key checks, so without these one
+-- account could attach rows to another account's term, subject or class (for example, a mark that then
+-- blocks the owner from marking that class). Each child must share its parent's user_id.
+do $$
+declare c record;
+begin
+  for c in select * from (values
+    ('terms', 'terms_id_user_key', 'unique (id, user_id)'),
+    ('subjects', 'subjects_id_user_key', 'unique (id, user_id)'),
+    ('slots', 'slots_id_user_key', 'unique (id, user_id)'),
+    ('subjects', 'subjects_term_owner_fk', 'foreign key (term_id, user_id) references public.terms (id, user_id) on delete cascade'),
+    ('grade_items', 'grade_items_subject_owner_fk', 'foreign key (subject_id, user_id) references public.subjects (id, user_id) on delete cascade'),
+    ('slots', 'slots_subject_owner_fk', 'foreign key (subject_id, user_id) references public.subjects (id, user_id) on delete cascade'),
+    ('marks', 'marks_subject_owner_fk', 'foreign key (subject_id, user_id) references public.subjects (id, user_id) on delete cascade'),
+    ('marks', 'marks_slot_owner_fk', 'foreign key (slot_id, user_id) references public.slots (id, user_id) on delete cascade')
+  ) as v(tbl, name, def) loop
+    if not exists (select 1 from pg_constraint where conname = c.name) then
+      execute format('alter table public.%I add constraint %I %s', c.tbl, c.name, c.def);
+    end if;
+  end loop;
+end $$;
+
+-- Reminder queue hardening. Accounts may read, add and remove their own planned reminders, but never
+-- edit them or mark them sent: only the push function (service role) does that.
+drop policy if exists own_rows on public.notifications;
+drop policy if exists own_select on public.notifications;
+drop policy if exists own_insert on public.notifications;
+drop policy if exists own_delete on public.notifications;
+create policy own_select on public.notifications for select to authenticated using (user_id = auth.uid());
+create policy own_insert on public.notifications for insert to authenticated with check (user_id = auth.uid());
+create policy own_delete on public.notifications for delete to authenticated using (user_id = auth.uid());
+create index if not exists notifications_user_unsent on public.notifications (user_id) where sent_at is null;
+
+-- A planned reminder must be unsent, not in the past, and one account cannot flood the shared queue.
+create or replace function public.check_notification() returns trigger language plpgsql as $$
+begin
+  if current_user = 'authenticated' then
+    new.sent_at := null;
+    if new.fire_at < now() - interval '10 minutes' then
+      raise exception 'Reminder time is in the past' using errcode = 'check_violation';
+    end if;
+    if (select count(*) from public.notifications where user_id = new.user_id and sent_at is null) >= 3000 then
+      raise exception 'Too many reminders planned' using errcode = 'check_violation';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists check_notification on public.notifications;
+create trigger check_notification before insert on public.notifications for each row execute function public.check_notification();
+
+-- Push endpoints must be HTTPS (the push function also checks the host against known push services).
+alter table public.push_subscriptions drop constraint if exists push_subscriptions_https;
+alter table public.push_subscriptions add constraint push_subscriptions_https check (endpoint ~ '^https://');

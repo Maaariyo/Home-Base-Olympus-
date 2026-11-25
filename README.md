@@ -6,7 +6,11 @@ Tasks, calendar and attendance for one student, as a website. Works on phone and
 - **Tasks**: heading, notes, due time, assignees, any number of reminders. Overdue / Today / Upcoming / Done, search, filter by person, swipe to complete or delete with Undo.
 - **Calendar**: month, week and day views with three layers: events, task due times and classes.
 - **Attendance**: per-subject donut, "attend the next N" / "you can skip N", overall view, session history, and a **What if I skip?** planner that shows each subject's percentage before you miss a class.
-- **Timetable**: term, holidays, subjects with opening balances, weekly classes, mid-term timetable changes.
+- **Timetable**: term, holidays, subjects with opening balances, weekly classes, mid-term timetable changes; import from Excel, Google Sheets or CSV, and share yours as CSV.
+- **Grades**: weighted components per subject and the average you need on the rest.
+- **Reminders**: push notifications, a Sunday digest of the week ahead, and "safe to skip?" hints on Today.
+- **Calendar feed**: a private link that puts your classes, deadlines and events into Google or Apple Calendar.
+- **Offline**: after one visit the site opens with no signal and shows your last saved copy.
 - Dark mode, phone and desktop layouts, installable from the browser.
 
 Stack: Next.js (static export), Tailwind, Supabase (Postgres, Auth, Row Level Security, Edge Functions, pg_cron). Same stack as Wanderlist.
@@ -67,9 +71,15 @@ npx supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJEC
 npx supabase functions deploy push --no-verify-jwt
 ```
 
+```bash
+npx supabase functions deploy calendar --no-verify-jwt
+```
+
+Both functions run without a login on purpose: browsers' notification buttons and calendar apps cannot sign in. Each one checks its own secret instead (the cron secret, a notification's id, or the calendar link's token).
+
 Then:
 
-1. Edit [`supabase/cron.sql`](supabase/cron.sql): put in your project ref and the same `CRON_SECRET`. Run it in the SQL Editor.
+1. Copy [`supabase/cron.sql`](supabase/cron.sql) into the SQL Editor, replace `YOUR-PROJECT-REF` and `YOUR-CRON-SECRET` **there**, and run it. Don't save the real secret into the file in your repository: anyone who can read the repo could then trigger the sender.
 2. Add `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (the public key) to your host's env vars and redeploy.
 3. On each phone or laptop: open the site, tap **Turn on** on the Today screen. On iPhone, first use **Share → Add to Home Screen** and open the site from the home screen icon; Safari only allows push for installed sites.
 
@@ -89,11 +99,12 @@ npm run lint
 
 `npm test` runs the acceptance tests in [`lib/logic.test.ts`](lib/logic.test.ts) (attendance maths, reminder timing, timetable rules).
 
-Browser tests in [`e2e/`](e2e) click through the demo site and the sign-in, closed sign-up and password-reset screens (against a mocked Supabase). They need the `playwright` dev dependency, which is not added yet; once it is, run `npm run test:e2e`. [`SPEC.md`](SPEC.md) is the product spec; [`CLAUDE.md`](CLAUDE.md) holds the rules for AI coding sessions.
+Browser tests in [`e2e/`](e2e) (26) click through the demo site and the account screens against a mocked Supabase. They need the `playwright` dev dependency, which is not added yet; once it is, run `npm run test:e2e`. [`SPEC.md`](SPEC.md) is the product spec; [`CLAUDE.md`](CLAUDE.md) holds the rules for AI coding sessions.
 
 ## Limits to know
 
-- **Online first.** Pages and data need a connection; there is no offline editing. Demo mode is the only offline mode.
+- **Offline is read-only.** After one visit the site opens without a connection and shows the copy saved at your last load; changes need a connection.
+- **Calendar apps refresh on their own schedule** (Google: every few hours), so a change can take a while to show there.
 - **Free Supabase projects pause after 7 days with little activity.** Reminders stop until you resume the project in the dashboard. Reminders more than 6 hours late are dropped rather than sent late.
 - **Notification buttons:** browsers show at most two (Present / Absent, Done / Snooze). iPhone shows none: tapping a notification opens the site.
 - **Quiet hours and reminder times follow the device's time zone** at the moment you last opened the site.

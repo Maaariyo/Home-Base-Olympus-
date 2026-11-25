@@ -66,6 +66,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           ))}
         </nav>
+        {auth.kind === "signed-in" && repo.mode === "supabase" && (
+          <div className="mt-auto truncate px-2 text-xs text-muted" title={auth.email}>
+            Signed in as <b className="text-ink">{auth.email}</b>
+          </div>
+        )}
         {repo.mode === "demo" && (
           <div className="mt-auto rounded-xl bg-warn-bg px-3 py-2 text-xs text-warn">
             <b>Demo mode.</b> Sample data, saved in this browser only.

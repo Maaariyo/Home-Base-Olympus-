@@ -20,6 +20,10 @@ const ACTIONS: Record<string, { action: string; title: string }[]> = {
   CLASS: [{ action: "PRESENT", title: "Present" }, { action: "ABSENT", title: "Absent" }],
 };
 
+// Only real browser push services: a made-up endpoint could otherwise make this function call any host.
+const PUSH_HOSTS = /^(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com|[a-z0-9-]+\.notify\.windows\.com)$/;
+const LATE = 6 * 3600_000; // reminders more than 6 h late are dropped (e.g. after the free project was paused)
+
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json" } });
 
 Deno.serve(async (req) => {
@@ -27,7 +31,7 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
   try {
-    if (id) return await act(id, url.searchParams.get("act") ?? "");
+    if (id) return req.method === "POST" ? await act(id, url.searchParams.get("act") ?? "") : json({ error: "use POST" }, 405);
     if (!CRON_SECRET || req.headers.get("x-cron-secret") !== CRON_SECRET) return json({ error: "forbidden" }, 403);
     return await send();
   } catch (e) {
@@ -38,17 +42,17 @@ Deno.serve(async (req) => {
 
 async function send() {
   const now = new Date();
-  const { data: due, error } = await sb.from("notifications").select("*").is("sent_at", null).lte("fire_at", now.toISOString()).order("fire_at").limit(200);
+  const stale = new Date(now.getTime() - LATE).toISOString();
+  // Old unsent rows are purged rather than selected, so a pile of them cannot crowd out today's reminders.
+  await sb.from("notifications").delete().is("sent_at", null).lt("fire_at", stale);
+  const { data: due, error } = await sb.from("notifications").select("*").is("sent_at", null).gte("fire_at", stale).lte("fire_at", now.toISOString()).order("fire_at").limit(200);
   if (error) throw error;
   if (!due.length) return json({ sent: 0 });
   // Claim the batch first, so an overlapping run cannot send it twice.
   await sb.from("notifications").update({ sent_at: now.toISOString() }).in("id", due.map((n) => n.id));
   const { data: subs } = await sb.from("push_subscriptions").select("*").in("user_id", [...new Set(due.map((n) => n.user_id))]);
 
-  let sent = 0;
-  for (const n of due) {
-    // Skip anything more than 6 h late (e.g. after the free project was paused): a stale buzz is noise.
-    if (now.getTime() - new Date(n.fire_at).getTime() > 6 * 3600_000) continue;
+  const jobs = due.flatMap((n) => {
     const payload = JSON.stringify({
       id: n.id,
       title: n.title,
@@ -57,17 +61,22 @@ async function send() {
       actions: ACTIONS[n.kind] ?? [],
       actUrl: `${SUPABASE_URL}/functions/v1/push?id=${n.id}`,
     });
-    for (const s of (subs ?? []).filter((x) => x.user_id === n.user_id)) {
-      try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 3600 });
-        sent++;
-      } catch (e) {
-        const code = (e as { statusCode?: number }).statusCode;
-        if (code === 404 || code === 410) await sb.from("push_subscriptions").delete().eq("id", s.id); // device unsubscribed
-        else console.error("push failed", code, e);
-      }
-    }
-  }
+    return (subs ?? [])
+      .filter((s) => s.user_id === n.user_id && PUSH_HOSTS.test(new URL(s.endpoint).hostname))
+      .map(async (s) => {
+        try {
+          // A 10 s limit, and all sends in parallel, so one slow endpoint cannot stall everyone's reminders.
+          await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 3600, timeout: 10_000 });
+          return true;
+        } catch (e) {
+          const code = (e as { statusCode?: number }).statusCode;
+          if (code === 404 || code === 410) await sb.from("push_subscriptions").delete().eq("id", s.id); // device unsubscribed
+          else console.error("push failed", code, e);
+          return false;
+        }
+      });
+  });
+  const sent = (await Promise.allSettled(jobs)).filter((r) => r.status === "fulfilled" && r.value).length;
   await sb.from("notifications").delete().lt("sent_at", new Date(now.getTime() - 14 * 86400_000).toISOString());
   return json({ sent });
 }
@@ -82,9 +91,11 @@ async function act(id: string, action: string) {
   } else if (action === "snooze10" || action === "snooze60") {
     const { id: _id, created_at: _c, sent_at: _s, ...rest } = n;
     const at = new Date(now.getTime() + (action === "snooze10" ? 10 : 60) * 60_000);
-    await sb.from("notifications").insert({ ...rest, key: `snooze:${n.id}:${at.getTime()}`, fire_at: at.toISOString(), source: "snooze" });
+    // One snooze per button per notification: repeating the request does not stack reminders.
+    await sb.from("notifications").upsert({ ...rest, key: `snooze:${n.id}:${action}`, fire_at: at.toISOString(), source: "snooze" }, { onConflict: "user_id,key", ignoreDuplicates: true });
   } else if ((action === "PRESENT" || action === "ABSENT") && n.kind === "CLASS" && n.payload) {
     const p = n.payload;
+    // The database only accepts a mark whose class and subject belong to n.user_id (same-owner foreign keys).
     if (p.slot_id) {
       await sb.from("marks").upsert(
         { user_id: n.user_id, subject_id: p.subject_id, slot_id: p.slot_id, date: p.date, start_time: p.start_time, end_time: p.end_time, weight: p.weight, status: action },

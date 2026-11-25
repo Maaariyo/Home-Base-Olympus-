@@ -206,3 +206,25 @@ test("keyboard: an editor takes focus, keeps it while typing, Tab stays inside, 
   assert.ok(await fab.evaluate((el) => el === document.activeElement), "focus returns to the + button");
   await page.context().close();
 });
+
+test("backup import: damaged entries are reported and skipped, the rest imports", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { page } = await open("/settings");
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /Export JSON/ }).click()]);
+  const backup = JSON.parse(await readFile((await download.path())!, "utf8"));
+  const tasks = backup.tasks.length;
+  backup.tasks[0].reminders = [{ before: 1e300, every: 1e-9 }];
+  backup.tasks.push({ id: "broken", title: "" });
+  let message = "";
+  page.on("dialog", (d) => {
+    message = d.message();
+    void d.accept();
+  });
+  await page.locator('input[type="file"]').setInputFiles({ name: "backup.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(backup)) });
+  await page.getByText("Backup imported").waitFor();
+  assert.match(message, /1 damaged entry will be skipped/);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("home-base-demo-v1")!));
+  assert.equal(saved.tasks.length, tasks);
+  assert.deepEqual(saved.tasks.find((t: { title: string }) => t.title === backup.tasks[0].title).reminders, []);
+  await page.context().close();
+});

@@ -53,3 +53,21 @@ test("feed with no term still lists tasks and events", () => {
   assert.doesNotMatch(ics, /slot-s1/);
   assert.match(ics, /task-k1/);
 });
+
+test("feed: hostile or broken values cannot break the file", () => {
+  const ics = buildCalendar(
+    {
+      ...base,
+      timeZone: "Not/AZone\r\nX-INJECT:1",
+      terms: [{ ...base.terms[0], holidays: [{ date: "2026-11-16\r\nX-BAD:1", label: "" }] }],
+      tasks: [{ ...base.tasks[0], title: "A\rB\nC", reminders: [{ before: -5 }, { before: 1.5 }, { before: 30 }] }],
+      events: [{ ...base.events[0], skip_dates: ["bad\r\nDATE"] }],
+    },
+    new Date("2026-11-18T00:00:00Z"),
+  );
+  assert.doesNotMatch(ics, /X-INJECT|X-BAD|bad\r?\nDATE/);
+  assert.match(ics, /X-WR-TIMEZONE:UTC/);
+  assert.match(unfold(ics), /SUMMARY:Due: A\\nB\\nC/);
+  assert.match(ics, /TRIGGER:-PT30M/);
+  assert.doesNotMatch(ics, /TRIGGER:-PT-5M|TRIGGER:-PT1\.5M/);
+});

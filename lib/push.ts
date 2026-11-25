@@ -18,9 +18,9 @@ export async function enablePush(repo: Repo) {
   if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications are blocked for this site in your browser settings.");
   const reg = await navigator.serviceWorker.register("/sw.js");
   await navigator.serviceWorker.ready;
-  const sub =
-    (await reg.pushManager.getSubscription()) ??
-    (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(KEY) }));
+  // Always a fresh subscription: a leftover one may belong to an account that used this browser before.
+  await (await reg.pushManager.getSubscription())?.unsubscribe();
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(KEY) });
   await repo.savePushSubscription(sub.toJSON());
 }
 

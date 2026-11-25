@@ -33,22 +33,26 @@ export class SupabaseRepo implements Repo {
   private url: string;
   private lastSync = "";
   private recovery = false;
+  private pendingRecovery: { access_token: string; refresh_token: string } | null = null;
   private linkError: string | null = null;
+  private cleanUrl = false;
 
   constructor(url: string, anonKey: string) {
-    // Read an email link before the client consumes it from the address bar.
+    // Sessions in the address bar are only accepted from a password-reset link (type=recovery). The client's
+    // own URL detection is off: it would sign anyone into whatever account a crafted link names.
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.hash.slice(1) || window.location.search.slice(1));
-      this.recovery = p.get("type") === "recovery";
-      if (p.get("error_description")) {
-        this.linkError = p.get("error_code") === "otp_expired" ? "That email link has expired or was already used. Request a new one." : p.get("error_description");
+      const access_token = p.get("access_token");
+      const refresh_token = p.get("refresh_token");
+      if (p.get("type") === "recovery" && access_token && refresh_token) this.pendingRecovery = { access_token, refresh_token };
+      // Fixed wording: never echo text from the link itself.
+      if (p.get("error") || p.get("error_code")) {
+        this.linkError = p.get("error_code") === "otp_expired" ? "That email link has expired or was already used. Request a new one." : "That link didn't work. Request a new one.";
       }
+      this.cleanUrl = !!(access_token || this.linkError);
     }
     this.url = url;
-    this.sb = createClient(url, anonKey, { auth: { persistSession: true, autoRefreshToken: true } });
-    this.sb.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") this.recovery = true;
-    });
+    this.sb = createClient(url, anonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
   }
 
   private async userId() {
@@ -59,6 +63,24 @@ export class SupabaseRepo implements Repo {
   }
 
   async getAuth(): Promise<AuthState> {
+    if (this.cleanUrl) {
+      // Take the tokens out of the address bar (history, screenshots). After an await, so it runs once the
+      // Next.js router has written its own initial history entry, which still contains them; its state is kept.
+      await Promise.resolve();
+      this.cleanUrl = false;
+      history.replaceState(history.state, "", window.location.pathname + window.location.search);
+    }
+    if (this.pendingRecovery) {
+      const tokens = this.pendingRecovery;
+      this.pendingRecovery = null;
+      // Set first: setSession fires SIGNED_IN, which re-reads auth before this call returns.
+      this.recovery = true;
+      const { error } = await this.sb.auth.setSession(tokens);
+      if (error) {
+        this.recovery = false;
+        this.linkError = "That email link has expired or was already used. Request a new one.";
+      }
+    }
     const { data } = await this.sb.auth.getSession();
     const email = data.session?.user.email;
     if (!email) return this.linkError ? { kind: "signed-out", notice: this.linkError } : { kind: "signed-out" };
@@ -78,6 +100,16 @@ export class SupabaseRepo implements Repo {
 
   async signOut() {
     this.recovery = false;
+    // This device must stop receiving this account's reminders, or the next person to use it would see them.
+    try {
+      const sub = await (await navigator.serviceWorker?.getRegistration())?.pushManager.getSubscription();
+      if (sub) {
+        await this.sb.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+        await sub.unsubscribe();
+      }
+    } catch {
+      /* sign out regardless */
+    }
     // The offline copy is personal data: never leave it behind on a shared computer.
     for (const k of Object.keys(localStorage)) if (k.startsWith(CACHE_PREFIX)) localStorage.removeItem(k);
     await this.sb.auth.signOut();
@@ -86,7 +118,9 @@ export class SupabaseRepo implements Repo {
   async requestPasswordReset(email: string) {
     // The link returns to this site; Supabase allows it when it matches Site URL or a listed Redirect URL.
     const { error } = await this.sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/` });
-    if (error) throw new Error(authMessage(error));
+    // "Not authorized" only happens for existing accounts outside the Supabase team: reporting it would
+    // reveal that the account exists, so it gets the same answer as an unknown email.
+    if (error && !/not authori[sz]ed/i.test(error.message)) throw new Error(authMessage(error));
   }
 
   async updatePassword(password: string) {
@@ -101,7 +135,7 @@ export class SupabaseRepo implements Repo {
 
   onAuthChange(cb: () => void) {
     const { data } = this.sb.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "PASSWORD_RECOVERY" || event === "USER_UPDATED") cb();
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") cb();
     });
     return () => data.subscription.unsubscribe();
   }
@@ -151,14 +185,31 @@ export class SupabaseRepo implements Repo {
     check(await this.sb.from("settings").upsert({ user_id: await this.userId(), data }, { onConflict: "user_id" }));
   }
 
+  /**
+   * Import (rows already checked and given fresh ids by prepareImport). New rows go in first and the old
+   * ones are removed only once everything saved, so a failure part-way never leaves the account empty.
+   * Terms cascade to subjects and everything under them; tasks and events stand alone.
+   */
   async replaceAll(data: Data) {
     const user_id = await this.userId();
-    // Terms cascade to subjects and everything under them (grades, slots, marks); tasks and events stand alone.
-    for (const t of ["terms", "tasks", "events"] as const) check(await this.sb.from(t).delete().eq("user_id", user_id));
-    for (const t of TABLES) {
-      const rows = (data[t] ?? []).map((r) => ({ ...r, user_id }));
-      if (rows.length) check(await this.sb.from(t).insert(rows));
+    const roots = ["terms", "tasks", "events"] as const;
+    const ids = async (t: (typeof roots)[number]) => ((check(await this.sb.from(t).select("id")) as { id: string }[]) ?? []).map((r) => r.id);
+    const old = { terms: await ids("terms"), tasks: await ids("tasks"), events: await ids("events") };
+    // Ids travel in the URL: 100 per request keeps it well under server limits.
+    const remove = async (t: (typeof roots)[number], list: string[]) => {
+      for (let i = 0; i < list.length; i += 100) check(await this.sb.from(t).delete().in("id", list.slice(i, i + 100)));
+    };
+    try {
+      for (const t of TABLES) {
+        const rows = (data[t] ?? []).map((r) => ({ ...r, user_id }));
+        for (let i = 0; i < rows.length; i += 500) check(await this.sb.from(t).insert(rows.slice(i, i + 500)));
+      }
+    } catch (e) {
+      // Undo the half-finished import; the account keeps its previous data.
+      for (const t of roots) await remove(t, (data[t] ?? []).map((r) => r.id)).catch(() => {});
+      throw e;
     }
+    for (const t of roots) await remove(t, old[t]);
     await this.saveSettings({ ...DEFAULT_SETTINGS, ...data.settings });
   }
 

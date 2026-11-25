@@ -8,7 +8,8 @@ import { Button, Card, Field, Input, inputClass, SectionLabel, Toggle } from "@/
 import { enablePush, pushState } from "@/lib/push";
 import { resetDemoData } from "@/lib/repo/local";
 import { useData } from "@/lib/store";
-import { TABLES, type Data, type Settings } from "@/lib/types";
+import { prepareImport } from "@/lib/backup";
+import type { Settings } from "@/lib/types";
 
 const PUSH_TEXT: Record<string, string> = {
   loading: "Checking…",
@@ -41,15 +42,16 @@ export default function SettingsPage() {
   };
 
   const importData = async (f: File) => {
-    let parsed: Data;
+    if (f.size > 20_000_000) return toast("That file is too big to be a Home Base backup.", "error");
+    let prepared: ReturnType<typeof prepareImport>;
     try {
-      parsed = JSON.parse(await f.text());
-      // Backups from before a table existed simply lack it; anything else must be a list.
-      if (!Array.isArray(parsed.tasks) || !TABLES.every((t) => parsed[t] === undefined || Array.isArray(parsed[t]))) throw new Error();
+      prepared = prepareImport(JSON.parse(await f.text()));
     } catch {
       return toast("That file is not a Home Base backup.", "error");
     }
-    if (confirm("Replace everything in this account with the backup? This cannot be undone.")) await run((r) => r.replaceAll(parsed), "Backup imported");
+    const { data: backup, dropped } = prepared;
+    const skipped = dropped ? ` ${dropped} damaged ${dropped === 1 ? "entry" : "entries"} will be skipped.` : "";
+    if (confirm(`Replace everything in this account with the backup?${skipped} This cannot be undone.`)) await run((r) => r.replaceAll(backup), "Backup imported");
   };
 
   return (

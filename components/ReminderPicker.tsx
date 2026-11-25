@@ -2,7 +2,7 @@
 
 import { X } from "lucide-react";
 import { useState } from "react";
-import { reminderLabel } from "@/lib/reminders";
+import { reminderLabel, validReminder } from "@/lib/reminders";
 import type { Reminder } from "@/lib/types";
 import { Button, Chip, inputClass } from "./ui";
 
@@ -23,6 +23,8 @@ export function ReminderPicker({ value, onChange }: { value: Reminder[]; onChang
   const [everyUnit, setEveryUnit] = useState(60);
   const same = (a: Reminder, b: Reminder) => a.before === b.before && (a.every ?? 0) === (b.every ?? 0);
   const add = (r: Reminder) => !value.some((v) => same(v, r)) && onChange([...value, r]);
+  const draft: Reminder = custom === "range" ? { before: n * unit, every: every * everyUnit } : { before: n * unit };
+  const draftValid = validReminder(draft) && (custom !== "range" || draft.every! >= 1);
 
   return (
     <div>
@@ -78,13 +80,15 @@ export function ReminderPicker({ value, onChange }: { value: Reminder[]; onChang
           )}
           <Button
             className="py-1.5"
+            disabled={!draftValid}
             onClick={() => {
-              add(custom === "range" ? { before: n * unit, every: every * everyUnit } : { before: n * unit });
+              add(draft);
               setCustom(null);
             }}
           >
             Add
           </Button>
+          {!draftValid && <span className="w-full text-xs text-danger">Up to a year before, repeating at least every minute.</span>}
         </div>
       )}
     </div>

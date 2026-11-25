@@ -1,5 +1,6 @@
 -- Runs the reminder sender every minute. Run once, after deploying the `push` function (README, step 4).
--- Replace YOUR-PROJECT-REF and YOUR-CRON-SECRET first. The secret must match the function's CRON_SECRET.
+-- Paste into the Supabase SQL Editor and replace YOUR-PROJECT-REF and YOUR-CRON-SECRET there; never commit the
+-- real secret to this file. It must match the function's CRON_SECRET.
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 

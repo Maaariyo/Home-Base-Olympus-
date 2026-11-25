@@ -10,14 +10,23 @@ const MIN = 60_000;
 export function fireTimes(anchor: number, reminders: Reminder[]): number[] {
   const out: number[] = [];
   for (const r of reminders) {
+    // Values come from saved data and imported backups: anything odd is ignored rather than allowed to
+    // loop forever (a negative or vanishingly small step never reaches the anchor).
+    if (!validReminder(r)) continue;
     const first = anchor - r.before * MIN;
     if (!r.every) {
       out.push(first);
       continue;
     }
-    for (let t = first; t < anchor; t += r.every * MIN) out.push(t);
+    for (let t = first, n = 0; t < anchor && n < 1000; t += r.every * MIN, n++) out.push(t);
   }
   return out;
+}
+
+/** Up to a year ahead; a repeat of at least a minute (0 or none means no repeat). */
+export const MAX_BEFORE = 366 * 1440;
+export function validReminder(r: Reminder): boolean {
+  return Number.isFinite(r?.before) && r.before >= 0 && r.before <= MAX_BEFORE && (!r.every || (Number.isFinite(r.every) && r.every >= 1));
 }
 
 function minutesOf(time: string) {

@@ -91,9 +91,30 @@ Unchanged from the Android spec and verified against a brute-force count for eve
 | 17 offline | Replaced: demo mode works offline; hosted mode needs a connection |
 | 18–19 two devices | Verified against the schema in Postgres (stale save refused, delete wins) |
 
+## More features
+
+- **Weekly digest**: Sunday 7 pm push with the coming week's deadlines, events and classes, and subjects below target (Settings, on by default). The text reflects the data when it was last planned (every change and visit).
+- **Grades**: in each subject's panel, assessed components (weight, out of, score). Shows marks so far and the average needed on the rest to reach the target final mark set in Settings (default 70%). Raw marks, not a relative grade.
+- **Timetable import and export**: paste cells from Excel or Google Sheets, or pick a CSV (Day, Start, End, Subject; optional Code, Room, Type). Missing subjects are created; classes already in the timetable are skipped. "Share as CSV" writes the same layout for a classmate. Cells that look like spreadsheet formulas are neutralised on export.
+- **Calendar feed**: Settings gives a private iCalendar link (Edge Function `calendar`) for Google or Apple Calendar: weekly class series without holidays and cancelled classes, extra classes, open deadlines with alerts, events with their repeats and skipped dates. The link can be reset.
+- **Offline viewing**: the service worker stores every page; signed-in data falls back to the copy saved at the last load, with an "Offline" banner. Saves explain they need a connection. Sign-out deletes the copy.
+- **Safe to skip?**: each upcoming class on Today says whether missing it keeps that subject at or above target.
+- **Send a test**: Settings queues a test notification to check reminders reach the device.
+
+## Security model
+
+- **Row Level Security** on every table: an account reads and writes only its own rows.
+- **Same-owner references**: composite foreign keys make every subject, class, mark and grade belong to the same account as its parent. RLS does not cover foreign-key checks, so without these an account could attach rows to another's classes.
+- **Reminder queue**: accounts may only add, read and delete their own planned reminders, never edit them or mark them sent. Inserts must be in the future, are capped at 3000 unsent per account, and `sent_at` is always cleared. Push endpoints must be HTTPS and on a known push service; sends run in parallel with a 10 s limit; stale rows are purged rather than sent.
+- **Functions without login** (`push`, `calendar`): the sender needs the cron secret; notification buttons need the notification's unguessable id and POST; the calendar needs the feed token. Every service-role query is pinned to the owner.
+- **Sign-in links**: the client does not read sessions from the address bar except from a password-reset link, and removes tokens from the address bar. Link errors show fixed wording. A reset request answers the same whether or not the account exists. The signed-in email is shown in the sidebar and Settings.
+- **Sign-out** removes this device's push subscription and the offline copy.
+- **Backup import**: every row is checked, damaged ones are dropped (and counted), ids are regenerated with links kept, and new rows are saved before old ones are removed.
+- **Accessibility**: an axe-core audit (WCAG 2.2 AA) of every screen in light and dark mode reports no violations. Sheets take keyboard focus, keep Tab inside and return focus on close.
+
 ## Browser tests
 
-`e2e/` holds 13 click-through tests: every page in light and dark mode, tasks with Undo, marking, timetable, settings, skipped event dates, note links, the what-if planner, and the account screens against a mocked Supabase. They run with `npm run test:e2e` once the `playwright` dev dependency is approved and added; CI will then run them on every push.
+`e2e/` holds 26 click-through tests: every page in light and dark mode, tasks with Undo, marking, timetable and its import, settings, skipped event dates, note links, the what-if planner, grades, offline use, keyboard focus, backup import with damaged entries, and the account screens against a mocked Supabase (sign-in, closed sign-ups, password reset, forged and broken links, offline banner, calendar link, sign-out cleanup). They run with `npm run test:e2e` once the `playwright` dev dependency is approved and added; CI will then run them on every push.
 
 ## Out of scope
 

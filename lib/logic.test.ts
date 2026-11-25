@@ -248,3 +248,47 @@ test("timetable export: same layout the importer reads, safe to open in a spread
   assert.deepEqual(back.errors, []);
   assert.deepEqual(back.rows.map(({ line: _l, ...r }) => r), [rows[1], rows[0]]);
 });
+
+test("reminders: impossible values are ignored instead of hanging the page", async () => {
+  const { fireTimes } = await import("./reminders.ts");
+  const bad = [{ before: -5 }, { before: 1e300, every: 360 }, { before: 60, every: -1 }, { before: 60, every: 0.5 }, { before: Number.NaN }, { before: 600000 }];
+  assert.deepEqual(fireTimes(due, bad), []);
+  // A huge but valid range is capped rather than producing millions of entries.
+  assert.equal(fireTimes(due, [{ before: 366 * 1440, every: 1 }]).length, 1000);
+  assert.equal(fireTimes(due, [{ before: 60, every: 0 }]).length, 1); // every 0 means "no repeat"
+});
+
+test("backup import: rows checked, bad ones dropped with their children, fresh ids keep the links", async () => {
+  const { prepareImport } = await import("./backup.ts");
+  let n = 0;
+  const id = () => `new-${++n}`;
+  const backup = {
+    terms: [{ id: "t1", user_id: "someone", name: "T", start_date: "2026-11-01", end_date: "2026-12-31", track_from: "2026-11-01", holidays: [{ date: "2026-11-27", label: "Fair" }, { date: "nope" }], created_at: "2026-11-01T00:00:00Z", updated_at: "x" }],
+    subjects: [
+      { id: "s1", term_id: "t1", name: "MKT", code: "", color: "#1c7ed6", target_pct: null, opening_held: 4, opening_attended: 3 },
+      { id: "s2", term_id: "missing-term", name: "Orphan", code: "", color: "#1c7ed6", target_pct: null, opening_held: 0, opening_attended: 0 },
+    ],
+    grade_items: [{ id: "g1", subject_id: "s2", name: "Quiz", weight: 10, max_score: 10, score: 5 }],
+    slots: [{ id: "l1", subject_id: "s1", day: 1, start_time: "09:30", end_time: "10:45", room: "", kind: "LECTURE", weight: 1, effective_from: "2026-11-01", effective_to: null }],
+    marks: [{ id: "m1", subject_id: "s1", slot_id: "l1", date: "2026-11-02", start_time: "09:30", end_time: "10:45", weight: 1, status: "PRESENT" }],
+    tasks: [
+      { id: "k1", title: "Deck", notes: "", due_at: "2026-11-20T12:00:00Z", assignees: ["Me", 5], reminders: [{ before: 60 }, { before: 1e300, every: 1e-9 }, { before: 30, every: -1 }], done_at: null },
+      { id: "k2", title: "", due_at: "2026-11-20T12:00:00Z", done_at: null },
+    ],
+    events: [{ id: "e1", title: "Club", notes: "", category: "SOCIAL", start_at: "2026-11-17T13:00:00Z", end_at: "2026-11-17T12:00:00Z", all_day: false, location: "", repeat: "NONE", repeat_until: null, reminders: [] }],
+    settings: { target: 80, taskReminders: [{ before: -1 }] },
+  };
+  const { data, dropped } = prepareImport(backup, id);
+  assert.equal(dropped, 4); // orphan subject, its grade item, untitled task, event ending before it starts
+  assert.equal(data.terms[0].id, "new-1");
+  assert.deepEqual(data.terms[0].holidays, [{ date: "2026-11-27", label: "Fair" }]);
+  assert.equal((data.terms[0] as unknown as Record<string, unknown>).user_id, undefined);
+  assert.equal(data.subjects[0].term_id, "new-1");
+  assert.equal(data.slots[0].subject_id, data.subjects[0].id);
+  assert.equal(data.marks[0].slot_id, data.slots[0].id);
+  assert.deepEqual(data.tasks[0].assignees, ["Me"]);
+  assert.deepEqual(data.tasks[0].reminders, [{ before: 60 }]);
+  assert.equal(data.settings.target, 80);
+  assert.deepEqual(data.settings.taskReminders, []);
+  assert.throws(() => prepareImport({ hello: 1 }), /not a Home Base backup/);
+});

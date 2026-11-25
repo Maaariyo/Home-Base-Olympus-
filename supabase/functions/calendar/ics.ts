@@ -44,7 +44,18 @@ export function zonedToUtc(ymd: string, hm: string, tz: string): Date {
 }
 
 /** RFC 5545 text: escape \ ; , and newlines. */
-const text = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+const text = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r\n|\r|\n/g, "\\n");
+const isDate = (d: unknown): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
+
+/** A time zone the runtime knows, else UTC (the zone comes from the browser that created the link). */
+function safeZone(tz: string): string {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: tz });
+    return /^[A-Za-z0-9_+\-/]+$/.test(tz) ? tz : "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 /** Folds lines longer than 75 bytes, as the format requires. */
 function fold(line: string): string {
@@ -65,11 +76,12 @@ function fold(line: string): string {
 
 function alarms(reminders: Reminder[], title: string): string[] {
   // Calendar apps cannot express "every N hours until due"; only the first alert of a range is kept.
-  return [...new Set(reminders.map((r) => r.before))].flatMap((m) => ["BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${text(title)}`, `TRIGGER:-PT${m}M`, "END:VALARM"]);
+  const valid = reminders.filter((r) => Number.isInteger(r?.before) && r.before >= 0 && r.before <= 366 * 1440);
+  return [...new Set(valid.map((r) => r.before))].flatMap((m) => ["BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${text(title)}`, `TRIGGER:-PT${m}M`, "END:VALARM"]);
 }
 
 export function buildCalendar(f: FeedInput, now: Date): string {
-  const tz = f.timeZone;
+  const tz = safeZone(f.timeZone);
   const stamp = `DTSTAMP:${utc(now)}`;
   const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Home Base (Olympus)//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "X-WR-CALNAME:Home Base", `X-WR-TIMEZONE:${tz}`, "REFRESH-INTERVAL;VALUE=DURATION:PT1H", "X-PUBLISHED-TTL:PT1H"];
   const event = (body: string[]) => lines.push("BEGIN:VEVENT", stamp, ...body, "END:VEVENT");
@@ -78,7 +90,7 @@ export function buildCalendar(f: FeedInput, now: Date): string {
   const term = f.terms.reduce<FeedInput["terms"][number] | null>((best, t) => (!best || t.start_date > best.start_date ? t : best), null);
   if (term) {
     const names = new Map(f.subjects.filter((s) => s.term_id === term.id).map((s) => [s.id, s.name]));
-    const holidays = term.holidays.map((h) => h.date);
+    const holidays = (term.holidays ?? []).map((h) => h?.date).filter(isDate);
     for (const s of f.slots) {
       const name = names.get(s.subject_id);
       if (!name) continue;
@@ -124,7 +136,7 @@ export function buildCalendar(f: FeedInput, now: Date): string {
     const start = partsIn(new Date(e.start_at), tz);
     const end = partsIn(new Date(e.end_at), tz);
     const freq = ["DAILY", "WEEKLY", "MONTHLY"].includes(e.repeat) ? e.repeat : null;
-    const skip = (e.skip_dates ?? []).map((d) => (e.all_day ? dateOnly(d) : local(d, start.hm)));
+    const skip = (e.skip_dates ?? []).filter(isDate).map((d) => (e.all_day ? dateOnly(d) : local(d, start.hm)));
     event([
       `UID:event-${e.id}@home-base`,
       `SUMMARY:${text(e.title)}`,
