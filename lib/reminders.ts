@@ -1,6 +1,7 @@
 // When reminders fire. Pure functions; the result is written to the server's notification queue.
 import { addDays, at, fmtDate, fmtHm, fmtTime, today as todayStr, ymd } from "./dates.ts";
 import { activeTerm, sessionsBetween } from "./sessions.ts";
+import { termStats } from "./stats.ts";
 import type { CalEvent, Data, Reminder, Settings } from "./types.ts";
 
 const MIN = 60_000;
@@ -106,7 +107,7 @@ export function eventAnchor(e: CalEvent, o: Occurrence): number {
 export interface PlannedNotification {
   key: string;
   fire_at: string;
-  kind: "TASK" | "EVENT" | "CLASS";
+  kind: "TASK" | "EVENT" | "CLASS" | "DIGEST";
   owner_id: string;
   title: string;
   body: string;
@@ -114,6 +115,30 @@ export interface PlannedNotification {
   /** Class prompts carry the session, so a notification button can mark it. */
   payload: Record<string, unknown> | null;
 }
+
+/**
+ * The next Sunday-19:00 summary of the coming Monday-to-Sunday week. Its text reflects the data at the
+ * moment it is planned (every change and every visit), so it can lag if the site is not opened that week.
+ */
+export function weeklyDigest(data: Data, now: Date): { at: number; body: string } | null {
+  if (!data.settings.weeklyDigest) return null;
+  const sunday = at(addDays(ymd(now), (7 - (now.getDay() || 7)) % 7), "19:00");
+  if (sunday <= now) sunday.setDate(sunday.getDate() + 7);
+  const from = at(addDays(ymd(sunday), 1), "00:00");
+  const to = at(addDays(ymd(sunday), 7), "23:59");
+  const deadlines = data.tasks.filter((t) => !t.done_at && new Date(t.due_at) >= from && new Date(t.due_at) <= to).length;
+  const events = data.events.reduce((n, e) => n + occurrences(e, from, to).length, 0);
+  const stats = termStats(data, now);
+  const classes = stats.sessions.filter((s) => s.date >= ymd(from) && s.date <= ymd(to) && s.status !== "CANCELLED").length;
+  const below = stats.subjects.filter((x) => x.band === "BELOW").map((x) => `${x.subject.name} (${x.pct?.toFixed(1)}%)`);
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const week = deadlines + events + classes
+    ? `${count(deadlines, "deadline", "deadlines")}, ${count(events, "event", "events")}, ${count(classes, "class", "classes")}.`
+    : "A clear week: no deadlines, events or classes.";
+  return { at: sunday.getTime(), body: below.length ? `${week} Below target: ${below.join(", ")}.` : week };
+}
+
+export const NO_OWNER = "00000000-0000-0000-0000-000000000000";
 
 /** Everything that should fire between now and `horizonDays` from now. Recomputed on every change. */
 export function planNotifications(data: Data, now: Date, horizonDays = 30): PlannedNotification[] {
@@ -185,6 +210,10 @@ export function planNotifications(data: Data, now: Date, horizonDays = 30): Plan
         times: applyQuiet([end], Infinity, s), // no deadline: always shift
       });
     }
+  }
+  const digest = weeklyDigest(data, now);
+  if (digest) {
+    add({ key: "digest", kind: "DIGEST", owner_id: NO_OWNER, title: "Your week ahead", body: digest.body, url: "/", payload: null, times: applyQuiet([digest.at], Infinity, s) });
   }
   return out.sort((a, b) => a.fire_at.localeCompare(b.fire_at));
 }

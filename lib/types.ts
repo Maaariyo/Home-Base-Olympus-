@@ -66,6 +66,17 @@ export interface Subject extends Row {
   opening_attended: number;
 }
 
+/** One assessed component of a subject (quiz, mid-term, project...). */
+export interface GradeItem extends Row {
+  subject_id: string;
+  name: string;
+  /** Share of the final mark, in percent. */
+  weight: number;
+  max_score: number;
+  /** Null until marked. */
+  score: number | null;
+}
+
 export type SlotKind = "LECTURE" | "TUTORIAL" | "LAB";
 
 export interface Slot extends Row {
@@ -106,6 +117,10 @@ export interface Settings {
   taskReminders: Reminder[];
   eventReminders: Reminder[];
   classPrompt: boolean;
+  /** Sunday 19:00: a summary of the week ahead. */
+  weeklyDigest: boolean;
+  /** The final mark (%) the grades tracker works towards. */
+  gradeTarget: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -120,6 +135,8 @@ export const DEFAULT_SETTINGS: Settings = {
   taskReminders: [{ before: 60 }],
   eventReminders: [{ before: 15 }],
   classPrompt: true,
+  weeklyDigest: true,
+  gradeTarget: 70,
 };
 
 export interface Tables {
@@ -127,10 +144,12 @@ export interface Tables {
   events: CalEvent;
   terms: Term;
   subjects: Subject;
+  grade_items: GradeItem;
   slots: Slot;
   marks: Mark;
 }
 export type TableName = keyof Tables;
-export const TABLES: TableName[] = ["terms", "subjects", "slots", "marks", "tasks", "events"];
+/** In foreign-key order: an import inserts them in this sequence. */
+export const TABLES: TableName[] = ["terms", "subjects", "grade_items", "slots", "marks", "tasks", "events"];
 
 export type Data = { [K in TableName]: Tables[K][] } & { settings: Settings };

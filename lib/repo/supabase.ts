@@ -26,6 +26,7 @@ function authMessage(e: { message: string; code?: string }): string {
 export class SupabaseRepo implements Repo {
   readonly mode = "supabase" as const;
   private sb: SupabaseClient;
+  private url: string;
   private lastSync = "";
   private recovery = false;
   private linkError: string | null = null;
@@ -39,6 +40,7 @@ export class SupabaseRepo implements Repo {
         this.linkError = p.get("error_code") === "otp_expired" ? "That email link has expired or was already used. Request a new one." : p.get("error_description");
       }
     }
+    this.url = url;
     this.sb = createClient(url, anonKey, { auth: { persistSession: true, autoRefreshToken: true } });
     this.sb.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") this.recovery = true;
@@ -130,7 +132,7 @@ export class SupabaseRepo implements Repo {
 
   async replaceAll(data: Data) {
     const user_id = await this.userId();
-    // Terms cascade to subjects, slots and marks; tasks and events stand alone.
+    // Terms cascade to subjects and everything under them (grades, slots, marks); tasks and events stand alone.
     for (const t of ["terms", "tasks", "events"] as const) check(await this.sb.from(t).delete().eq("user_id", user_id));
     for (const t of TABLES) {
       const rows = (data[t] ?? []).map((r) => ({ ...r, user_id }));
@@ -151,6 +153,17 @@ export class SupabaseRepo implements Repo {
       check(await this.sb.from("notifications").upsert(payload, { onConflict: "user_id,key", ignoreDuplicates: true }));
     }
     this.lastSync = signature;
+  }
+
+  async calendarFeed(reset: boolean) {
+    const user_id = await this.userId();
+    const time_zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (reset) check(await this.sb.from("calendar_feeds").delete().eq("user_id", user_id));
+    // Upsert keeps the existing token and refreshes the time zone the feed uses for class times.
+    const row = check(
+      await this.sb.from("calendar_feeds").upsert({ user_id, time_zone }, { onConflict: "user_id" }).select("token").single(),
+    ) as { token: string };
+    return `${this.url}/functions/v1/calendar?token=${row.token}`;
   }
 
   async savePushSubscription(sub: PushSubscriptionJSON) {

@@ -36,6 +36,19 @@ create table if not exists public.subjects (
   updated_at timestamptz not null default now()
 );
 
+-- Assessed components of a subject (quiz, mid-term, project). Score stays null until marked.
+create table if not exists public.grade_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users on delete cascade,
+  subject_id uuid not null references public.subjects on delete cascade,
+  name text not null check (char_length(name) between 1 and 80),
+  weight numeric not null check (weight > 0 and weight <= 100),
+  max_score numeric not null check (max_score > 0),
+  score numeric check (score >= 0 and score <= max_score),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.slots (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users on delete cascade,
@@ -121,7 +134,7 @@ create table if not exists public.notifications (
   user_id uuid not null default auth.uid() references auth.users on delete cascade,
   key text not null,
   fire_at timestamptz not null,
-  kind text not null check (kind in ('TASK', 'EVENT', 'CLASS')),
+  kind text not null,
   owner_id uuid not null,
   title text not null,
   body text not null default '',
@@ -133,17 +146,28 @@ create table if not exists public.notifications (
   unique (user_id, key)
 );
 create index if not exists notifications_due on public.notifications (fire_at) where sent_at is null;
+alter table public.notifications drop constraint if exists notifications_kind_check;
+alter table public.notifications add constraint notifications_kind_check check (kind in ('TASK', 'EVENT', 'CLASS', 'DIGEST'));
+
+-- The secret address of each user's calendar feed (supabase/functions/calendar). Anyone holding the link can
+-- read the feed, so Settings can replace the token, which kills the old link.
+create table if not exists public.calendar_feeds (
+  user_id uuid primary key default auth.uid() references auth.users on delete cascade,
+  token uuid not null unique default gen_random_uuid(),
+  time_zone text not null default 'UTC',
+  created_at timestamptz not null default now()
+);
 
 do $$
 declare t text;
 begin
-  foreach t in array array['terms', 'subjects', 'slots', 'marks', 'tasks', 'events', 'settings', 'push_subscriptions', 'notifications'] loop
+  foreach t in array array['terms', 'subjects', 'grade_items', 'slots', 'marks', 'tasks', 'events', 'settings', 'push_subscriptions', 'notifications', 'calendar_feeds'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists own_rows on public.%I', t);
     execute format('create policy own_rows on public.%I for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid())', t);
   end loop;
   -- updated_at drives the "changed on another device" check, so the database owns it.
-  foreach t in array array['terms', 'subjects', 'slots', 'marks', 'tasks', 'events', 'settings'] loop
+  foreach t in array array['terms', 'subjects', 'grade_items', 'slots', 'marks', 'tasks', 'events', 'settings'] loop
     execute format('drop trigger if exists touch on public.%I', t);
     execute format('create trigger touch before update on public.%I for each row execute function public.touch_updated_at()', t);
   end loop;

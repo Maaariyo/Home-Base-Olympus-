@@ -44,7 +44,8 @@ export default function SettingsPage() {
     let parsed: Data;
     try {
       parsed = JSON.parse(await f.text());
-      if (!TABLES.every((t) => Array.isArray(parsed[t]))) throw new Error();
+      // Backups from before a table existed simply lack it; anything else must be a list.
+      if (!Array.isArray(parsed.tasks) || !TABLES.every((t) => parsed[t] === undefined || Array.isArray(parsed[t]))) throw new Error();
     } catch {
       return toast("That file is not a Home Base backup.", "error");
     }
@@ -72,6 +73,15 @@ export default function SettingsPage() {
         </section>
 
         <section>
+          <SectionLabel>Grades</SectionLabel>
+          <Card className="p-4">
+            <Field label="Aim for a final mark of (%)" hint="The grades tracker shows the average you need on what's left to reach it.">
+              <Input type="number" min={1} max={100} value={s.gradeTarget} onChange={(e) => set({ gradeTarget: Math.min(100, Math.max(1, Math.round(+e.target.value) || 70)) })} />
+            </Field>
+          </Card>
+        </section>
+
+        <section>
           <SectionLabel>Reminders</SectionLabel>
           <Card className="space-y-4 p-4">
             <div className="flex items-center justify-between gap-3">
@@ -95,6 +105,7 @@ export default function SettingsPage() {
               )}
             </div>
             <Toggle label="Class prompt" hint="At the end of each class: “Did you attend?” with Present and Absent buttons." checked={s.classPrompt} onChange={(v) => set({ classPrompt: v })} />
+            <Toggle label="Weekly digest" hint="Sunday at 7 pm: deadlines, events and classes in the week ahead, plus subjects below target." checked={s.weeklyDigest} onChange={(v) => set({ weeklyDigest: v })} />
             <Toggle label="Quiet hours" checked={s.quietOn} onChange={(v) => set({ quietOn: v })} />
             {s.quietOn && (
               <div className="grid grid-cols-3 gap-3">
@@ -123,6 +134,8 @@ export default function SettingsPage() {
             </div>
           </Card>
         </section>
+
+        <CalendarFeed />
 
         <section>
           <SectionLabel>Backup</SectionLabel>
@@ -174,5 +187,69 @@ export default function SettingsPage() {
         </div>
       )}
     </>
+  );
+}
+
+/** The private link calendar apps subscribe to: classes, open deadlines and events. */
+function CalendarFeed() {
+  const { repo, toast } = useData();
+  const [url, setUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = async (reset: boolean) => {
+    if (reset && !confirm("Reset the link? Calendars using the old link stop updating until you add the new one.")) return;
+    setBusy(true);
+    try {
+      setUrl(await repo.calendarFeed(reset));
+      if (reset) toast("New link created. The old one no longer works.");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), "error");
+    }
+    setBusy(false);
+  };
+  return (
+    <section>
+      <SectionLabel>Calendar feed</SectionLabel>
+      <Card className="space-y-3 p-4 text-sm">
+        <p className="text-muted">
+          Show your classes, deadlines and events in Google Calendar or Apple Calendar. They refresh on the calendar app&apos;s schedule (Google: every few hours), and cancelled classes and holidays drop out.
+        </p>
+        {repo.mode === "demo" ? (
+          <p className="text-muted">Available once the site is connected to Supabase.</p>
+        ) : !url ? (
+          <Button variant="secondary" disabled={busy} onClick={() => void load(false)}>
+            Get my calendar link
+          </Button>
+        ) : (
+          <>
+            <div className="flex gap-2">
+              <input readOnly value={url} aria-label="Calendar link" className={inputClass + " font-mono text-xs"} onFocus={(e) => e.target.select()} />
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  navigator.clipboard.writeText(url).then(
+                    () => toast("Link copied"),
+                    () => toast("Couldn't copy: select the link and copy it yourself.", "error"),
+                  )
+                }
+              >
+                Copy
+              </Button>
+            </div>
+            <ul className="list-disc space-y-1 pl-5 text-muted">
+              <li>
+                <b className="text-ink">Google Calendar</b> (on a computer): Other calendars → + → From URL → paste.
+              </li>
+              <li>
+                <b className="text-ink">iPhone</b>: <a className="font-semibold text-accent underline" href={url.replace(/^https:/, "webcal:")}>open this link</a> and tap Subscribe.
+              </li>
+            </ul>
+            <p className="font-semibold text-warn">Treat this link like a password: anyone who has it can see your schedule.</p>
+            <Button variant="ghost" disabled={busy} onClick={() => void load(true)}>
+              Reset link
+            </Button>
+          </>
+        )}
+      </Card>
+    </section>
   );
 }

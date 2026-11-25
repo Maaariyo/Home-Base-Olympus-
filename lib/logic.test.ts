@@ -176,3 +176,53 @@ test("monthly events skip months without that day", () => {
   const got = occurrences(e, new Date(2026, 0, 1), new Date(2026, 11, 31)).map((o) => ymd(o.start));
   assert.deepEqual(got, ["2026-01-31", "2026-03-31", "2026-05-31"]);
 });
+
+test("weekly digest: next Sunday 19:00, counts the following Monday-Sunday", async () => {
+  const { weeklyDigest } = await import("./reminders.ts");
+  const empty = { terms: [], subjects: [], grade_items: [], slots: [], marks: [], tasks: [], events: [], settings: S };
+  const task = (id: string, due: Date, done = false) => ({ ...row, id, title: id, notes: "", due_at: due.toISOString(), assignees: [], reminders: [], done_at: done ? due.toISOString() : null });
+  const data = {
+    ...empty,
+    tasks: [task("in-week", new Date(2026, 10, 25, 9)), task("done", new Date(2026, 10, 26, 9), true), task("next-week", new Date(2026, 11, 1, 9)), task("this-week", new Date(2026, 10, 20, 9))],
+  };
+  const d = weeklyDigest(data, new Date(2026, 10, 18, 10))!; // Wed 18 Nov
+  assert.equal(`${ymd(new Date(d.at))} ${hm(new Date(d.at))}`, "2026-11-22 19:00");
+  assert.equal(d.body, "1 deadline, 0 events, 0 classes.");
+  // Sunday after 19:00 moves to the next Sunday; an empty week says so; the setting turns it off.
+  assert.equal(ymd(new Date(weeklyDigest(empty, new Date(2026, 10, 22, 20))!.at)), "2026-11-29");
+  assert.equal(weeklyDigest(empty, new Date(2026, 10, 18))!.body, "A clear week: no deadlines, events or classes.");
+  assert.equal(weeklyDigest({ ...empty, settings: { ...S, weeklyDigest: false } }, new Date(2026, 10, 18)), null);
+});
+
+test("grades: weighted score so far and the average needed on the rest", async () => {
+  const { gradeSummary, gradeText } = await import("./grades.ts");
+  const item = (weight: number, max_score: number, score: number | null) => ({ ...row, id: String(weight), subject_id: "s", name: "x", weight, max_score, score });
+  const items = [item(10, 10, 8), item(15, 20, 12), item(25, 100, null), item(50, 100, null)];
+  // 8/10 of 10 + 12/20 of 15 = 8 + 9 = 17 points from 25 graded: 68% average. Needs 53/75 = 70.7% for 70.
+  const s = gradeSummary(items, 70);
+  assert.deepEqual(s, { totalWeight: 100, gradedWeight: 25, earned: 17, average: 68, needed: 70.7 });
+  assert.equal(gradeText(s, 70), "You need 70.7% on average across the remaining 75% to finish at 70%.");
+  assert.equal(gradeText(gradeSummary([item(60, 100, 100), item(40, 100, null)], 50), 50), "50% is secured, even with zero on the remaining 40%.");
+  assert.equal(gradeText(gradeSummary([item(60, 100, 10), item(40, 100, null)], 70), 70), "70% is out of reach: the most you can finish with is 46%.");
+  assert.equal(gradeText(gradeSummary([item(100, 50, 40)], 70), 70), "Final: 80 out of 100.");
+  assert.equal(gradeText(gradeSummary([], 70), 70), "");
+});
+
+test("timetable import: CSV with quotes, pasted cells, times and days in common formats", async () => {
+  const { parseTimetable, parseTime, parseDay, TEMPLATE } = await import("./timetable-import.ts");
+  assert.deepEqual(["9:30", "09.30", "9:30 am", "2 PM", "12 pm", "12am", "14:00", "25:00", "13 pm", "9"].map(parseTime), ["09:30", "09:30", "09:30", "14:00", "12:00", "00:00", "14:00", null, null, null]);
+  assert.deepEqual(["Mon", "monday", "THU", "7", "Mo", "8", "Holiday"].map(parseDay), [1, 1, 4, 7, null, null, null]);
+
+  const csv = 'Day,Start,End,Subject,Room,Type\nTue,9:30 am,10:45 am,"Strategy, Advanced",LT 1,Lecture\nWed,2 pm,4:30 pm,Analytics,Lab 4,Lab\nThurs,11:00,10:00,Finance,,\nSun,10,11,,,\n';
+  const r = parseTimetable(csv);
+  assert.deepEqual(r.rows.map((x) => [x.day, x.start, x.end, x.subject, x.room, x.kind]), [
+    [2, "09:30", "10:45", "Strategy, Advanced", "LT 1", "LECTURE"],
+    [3, "14:00", "16:30", "Analytics", "Lab 4", "LAB"],
+  ]);
+  assert.deepEqual(r.errors, ["Row 4: ends before it starts.", "Row 5: no subject."]);
+
+  const pasted = parseTimetable("Day\tStart time\tEnd time\tCourse\nFriday\t09:30\t10:45\tOB\n");
+  assert.deepEqual(pasted.rows.map((x) => [x.day, x.subject]), [[5, "OB"]]);
+  assert.equal(parseTimetable(TEMPLATE).rows.length, 2);
+  assert.match(parseTimetable("Subject,Room\nX,Y").errors[0], /column headings including “Day”, “Start”, “End”/);
+});

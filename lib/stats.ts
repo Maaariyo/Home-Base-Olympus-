@@ -1,6 +1,6 @@
-import { advice, adviceText, band, percent, tally, type Band, type Tally } from "./attendance";
-import { activeTerm, remainingWeight, sessionsBetween, type Session } from "./sessions";
-import type { Data, Subject, Term } from "./types";
+import { advice, adviceText, band, percent, tally, type Band, type Tally } from "./attendance.ts";
+import { activeTerm, remainingWeight, sessionsBetween, type Session } from "./sessions.ts";
+import type { Data, Subject, Term } from "./types.ts";
 
 export interface SubjectStats {
   subject: Subject;

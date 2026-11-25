@@ -13,6 +13,7 @@ export class LocalRepo implements Repo {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const d = JSON.parse(raw) as Data;
+        for (const t of TABLES) (d[t] as unknown[]) ??= []; // data saved before a table existed
         return { ...d, settings: { ...DEFAULT_SETTINGS, ...d.settings } };
       }
     } catch {
@@ -70,6 +71,7 @@ export class LocalRepo implements Repo {
     // Same cascade as the database: a term owns subjects, a subject owns slots and marks.
     if (table === "terms") d.subjects = d.subjects.filter((s) => s.term_id !== id);
     const subjects = new Set(d.subjects.map((s) => s.id));
+    d.grade_items = d.grade_items.filter((g) => subjects.has(g.subject_id));
     d.slots = d.slots.filter((s) => subjects.has(s.subject_id));
     const slots = new Set(d.slots.map((s) => s.id));
     d.marks = d.marks.filter((m) => subjects.has(m.subject_id) && (!m.slot_id || slots.has(m.slot_id)));
@@ -88,6 +90,9 @@ export class LocalRepo implements Repo {
 
   async syncNotifications() {}
   async savePushSubscription() {}
+  async calendarFeed() {
+    return null;
+  }
 }
 
 export function resetDemoData() {

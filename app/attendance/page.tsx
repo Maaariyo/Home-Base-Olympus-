@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Fab, PageHeader } from "@/components/AppShell";
 import { BandPill, Donut } from "@/components/Donut";
+import { GradesSection } from "@/components/GradesSection";
 import { SessionRow } from "@/components/SessionRow";
 import { Sheet } from "@/components/Sheet";
 import { buttonClass, Card, EmptyState, SectionLabel } from "@/components/ui";
@@ -114,7 +115,8 @@ export default function AttendancePage() {
               </div>
             </div>
             {selected.text && <p className="mt-4 rounded-xl bg-paper px-4 py-3 text-sm font-bold">{selected.text}</p>}
-            <SectionLabel className="mt-6">History, newest first</SectionLabel>
+            <GradesSection subject={selected.subject} />
+            <SectionLabel className="mt-6">Attendance history, newest first</SectionLabel>
             <div className="divide-y divide-line">
               {selected.sessions
                 .filter((s) => started(s, now) || s.status !== "UNMARKED")

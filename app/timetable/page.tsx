@@ -1,13 +1,14 @@
 "use client";
 
-import { Pencil, Plus, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/AppShell";
 import { Sheet } from "@/components/Sheet";
 import { Button, Card, Chip, Field, IconButton, Input, inputClass, SectionLabel } from "@/components/ui";
 import { addDays, DAY_NAMES, fmtDate, fmtHm, today } from "@/lib/dates";
 import { activeTerm } from "@/lib/sessions";
 import { useData } from "@/lib/store";
+import { parseTimetable, TEMPLATE } from "@/lib/timetable-import";
 import type { Holiday, Slot, SlotKind, Subject, Term } from "@/lib/types";
 
 const COLORS = ["#1c7ed6", "#e8590c", "#2b8a3e", "#7048e8", "#c2255c", "#0c8599", "#e67700", "#5c940d", "#495057"];
@@ -17,6 +18,7 @@ export default function TimetablePage() {
   const term = activeTerm(data.terms);
   const [slotEdit, setSlotEdit] = useState<{ slot?: Slot; day: number } | null>(null);
   const [subjectEdit, setSubjectEdit] = useState<{ subject?: Subject } | null>(null);
+  const [importing, setImporting] = useState(false);
   const subjects = data.subjects.filter((s) => s.term_id === term?.id);
   const subject = new Map(subjects.map((s) => [s.id, s]));
   const t0 = today();
@@ -33,9 +35,14 @@ export default function TimetablePage() {
           <section>
             <div className="mb-2 flex items-center justify-between">
               <SectionLabel className="mb-0">Subjects</SectionLabel>
-              <Button variant="secondary" className="py-1.5" onClick={() => setSubjectEdit({})}>
-                <Plus size={16} /> Subject
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="secondary" className="py-1.5" onClick={() => setImporting(true)}>
+                  <Upload size={16} /> Import timetable
+                </Button>
+                <Button variant="secondary" className="py-1.5" onClick={() => setSubjectEdit({})}>
+                  <Plus size={16} /> Subject
+                </Button>
+              </div>
             </div>
             <Card className="divide-y divide-line">
               {subjects.map((s) => (
@@ -98,6 +105,7 @@ export default function TimetablePage() {
           </section>
         )}
       </div>
+      {importing && term && <ImportSheet term={term} onClose={() => setImporting(false)} />}
       {slotEdit && term && <SlotSheet {...slotEdit} term={term} subjects={subjects} onClose={() => setSlotEdit(null)} />}
       {subjectEdit && term && <SubjectSheet subject={subjectEdit.subject} term={term} onClose={() => setSubjectEdit(null)} />}
     </>
@@ -394,6 +402,126 @@ function SlotSheet({ slot, day, term, subjects, onClose }: { slot?: Slot; day: n
         </Field>
         {error && <p className="text-sm text-danger">{error}</p>}
       </form>
+    </Sheet>
+  );
+}
+
+/** Paste cells from Excel / Google Sheets, or pick a CSV: creates missing subjects and adds the weekly classes. */
+function ImportSheet({ term, onClose }: { term: Term; onClose: () => void }) {
+  const { data, run, toast } = useData();
+  const [text, setText] = useState("");
+  const parsed = useMemo(() => (text.trim() ? parseTimetable(text) : null), [text]);
+  const t0 = today();
+  const subjects = data.subjects.filter((s) => s.term_id === term.id);
+  const known = new Set(subjects.map((s) => s.name.toLowerCase()));
+  const newSubjects = [...new Set((parsed?.rows ?? []).map((r) => r.subject).filter((n) => !known.has(n.toLowerCase())))];
+  // Same rule as adding one class: the first timetable counts from tracking start, later ones from today.
+  const firstSetup = !data.slots.some((s) => subjects.some((x) => x.id === s.subject_id));
+  const from = firstSetup ? term.track_from : t0 > term.start_date ? t0 : term.start_date;
+
+  const readFile = async (f: File) => {
+    if (f.size > 1_000_000) return toast("That file is too big for a timetable (over 1 MB).", "error");
+    setText(await f.text());
+  };
+
+  const add = async () => {
+    if (!parsed?.rows.length) return;
+    let added = 0;
+    let skipped = 0;
+    const ok = await run(async (r) => {
+      const ids = new Map(subjects.map((s) => [s.name.toLowerCase(), s.id]));
+      const seen = new Set(data.slots.filter((s) => !s.effective_to || s.effective_to >= t0).map((s) => `${s.subject_id}|${s.day}|${s.start_time}|${s.end_time}`));
+      let colour = subjects.length;
+      for (const row of parsed.rows) {
+        const name = row.subject.toLowerCase();
+        if (!ids.has(name)) {
+          const id = crypto.randomUUID();
+          await r.insert("subjects", { id, term_id: term.id, name: row.subject, code: row.code, color: COLORS[colour++ % COLORS.length], target_pct: null, opening_held: 0, opening_attended: 0 });
+          ids.set(name, id);
+        }
+        const subject_id = ids.get(name)!;
+        const key = `${subject_id}|${row.day}|${row.start}|${row.end}`;
+        if (seen.has(key)) {
+          skipped++;
+          continue;
+        }
+        seen.add(key);
+        await r.insert("slots", { id: crypto.randomUUID(), subject_id, day: row.day, start_time: row.start, end_time: row.end, room: row.room, kind: row.kind, weight: row.kind === "LAB" ? 2 : 1, effective_from: from, effective_to: null });
+        added++;
+      }
+    });
+    if (ok) {
+      toast(`Added ${added} ${added === 1 ? "class" : "classes"}${skipped ? `; ${skipped} already in your timetable` : ""}`);
+      onClose();
+    }
+  };
+
+  const count = parsed?.rows.length ?? 0;
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title="Import timetable"
+      footer={
+        <Button className="w-full" disabled={!count} onClick={() => void add()}>
+          {count ? `Add ${count} ${count === 1 ? "class" : "classes"}` : "Nothing to add yet"}
+        </Button>
+      }
+    >
+      <div className="space-y-4 px-5 pb-5">
+        <p className="text-sm text-muted">
+          Copy the cells from Excel or Google Sheets and paste them below, or choose a CSV file. The first row must name the columns: <b className="text-ink">Day, Start, End, Subject</b>, and optionally Code, Room and Type (Lecture, Tutorial or Lab).
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <a href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`} download="timetable-template.csv" className="inline-flex items-center rounded-xl border border-line bg-card px-3 py-2 text-sm font-semibold">
+            Download template
+          </a>
+          <label className="inline-flex cursor-pointer items-center rounded-xl border border-line bg-card px-3 py-2 text-sm font-semibold">
+            Choose CSV file
+            <input type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" className="sr-only" onChange={(e) => e.target.files?.[0] && void readFile(e.target.files[0])} />
+          </label>
+        </div>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={6}
+          placeholder={"Day\tStart\tEnd\tSubject\nMon\t09:30\t10:45\tMarketing Management"}
+          aria-label="Timetable rows"
+          className={inputClass + " font-mono text-sm"}
+        />
+        {parsed && (
+          <div className="space-y-2 text-sm">
+            {parsed.errors.length > 0 && (
+              <ul className="space-y-0.5 rounded-xl bg-danger/10 px-4 py-3 text-danger">
+                {parsed.errors.slice(0, 8).map((e) => (
+                  <li key={e}>{e}</li>
+                ))}
+                {parsed.errors.length > 8 && <li>…and {parsed.errors.length - 8} more. Rows with problems are left out.</li>}
+              </ul>
+            )}
+            {count > 0 && (
+              <>
+                <div className="font-bold">
+                  {count} {count === 1 ? "class" : "classes"} ready, counting from {fmtDate(from)}
+                </div>
+                {newSubjects.length > 0 && <div className="text-muted">New subjects: {newSubjects.join(", ")}. Set their opening balances afterwards if you started mid-term.</div>}
+                <div className="max-h-48 divide-y divide-line overflow-y-auto rounded-xl border border-line">
+                  {parsed.rows.map((r) => (
+                    <div key={r.line} className="flex gap-3 px-3 py-1.5">
+                      <span className="w-9 shrink-0 font-semibold">{DAY_NAMES[r.day - 1]}</span>
+                      <span className="w-28 shrink-0 text-muted">
+                        {fmtHm(r.start)}–{fmtHm(r.end)}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{r.subject}</span>
+                      {r.kind === "LAB" && <span className="text-xs font-semibold text-muted">Lab ×2</span>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </Sheet>
   );
 }

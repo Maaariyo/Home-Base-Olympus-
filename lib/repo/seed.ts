@@ -1,6 +1,6 @@
 import { addDays, at, today } from "../dates";
 import { sessionsBetween } from "../sessions";
-import { DEFAULT_SETTINGS, type CalEvent, type Data, type Mark, type Slot, type Subject, type Task, type Term } from "../types";
+import { DEFAULT_SETTINGS, type CalEvent, type Data, type GradeItem, type Mark, type Slot, type Subject, type Task, type Term } from "../types";
 
 /** Sample MBA term so every screen has something to show in demo mode. */
 export function seedData(): Data {
@@ -112,5 +112,16 @@ export function seedData(): Data {
     event("Mock interview", "OTHER", addDays(t0, 4), "16:00", "16:45"),
   ];
 
-  return { terms: [term], subjects, slots, marks, tasks, events, settings: { ...DEFAULT_SETTINGS } };
+  const grade = (s: Subject, name: string, weight: number, max_score: number, score: number | null): GradeItem => ({ ...row(), subject_id: s.id, name, weight, max_score, score });
+  const grade_items = [
+    grade(mkt, "Class participation", 10, 10, 8),
+    grade(mkt, "Quiz 1", 15, 20, 12),
+    grade(mkt, "Group project", 25, 100, null),
+    grade(mkt, "End-term exam", 50, 100, null),
+    grade(cf, "Mid-term exam", 30, 50, 21),
+    grade(cf, "Case write-ups", 20, 20, null),
+    grade(cf, "End-term exam", 50, 100, null),
+  ];
+
+  return { terms: [term], subjects, grade_items, slots, marks, tasks, events, settings: { ...DEFAULT_SETTINGS } };
 }
