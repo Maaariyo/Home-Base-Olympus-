@@ -2,7 +2,7 @@
 //   POST with header x-cron-secret: sends every reminder that is due (called each minute by pg_cron).
 //   POST ?id=<notification id>&act=<action>: a notification button was tapped (called by public/sw.js).
 //     The id is an unguessable UUID that only ever reaches the owner's device, so it acts as the key.
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "jsr:@supabase/supabase-js@2.119.0"; // exact versions: this code holds the service key
 import webpush from "npm:web-push@3.6.7";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -22,6 +22,14 @@ const ACTIONS: Record<string, { action: string; title: string }[]> = {
 
 // Only real browser push services: a made-up endpoint could otherwise make this function call any host.
 const PUSH_HOSTS = /^(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com|[a-z0-9-]+\.notify\.windows\.com)$/;
+const pushable = (endpoint: string) => {
+  try {
+    const u = new URL(endpoint);
+    return u.protocol === "https:" && PUSH_HOSTS.test(u.hostname);
+  } catch {
+    return false; // a malformed address is skipped, never allowed to stop the run
+  }
+};
 const LATE = 6 * 3600_000; // reminders more than 6 h late are dropped (e.g. after the free project was paused)
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json" } });
@@ -40,16 +48,28 @@ Deno.serve(async (req) => {
   }
 });
 
+type Due = { id: string; user_id: string; kind: string; title: string; body: string; url: string };
+
 async function send() {
   const now = new Date();
-  const stale = new Date(now.getTime() - LATE).toISOString();
   // Old unsent rows are purged rather than selected, so a pile of them cannot crowd out today's reminders.
-  await sb.from("notifications").delete().is("sent_at", null).lt("fire_at", stale);
-  const { data: due, error } = await sb.from("notifications").select("*").is("sent_at", null).gte("fire_at", stale).lte("fire_at", now.toISOString()).order("fire_at").limit(200);
-  if (error) throw error;
-  if (!due.length) return json({ sent: 0 });
-  // Claim the batch first, so an overlapping run cannot send it twice.
-  await sb.from("notifications").update({ sent_at: now.toISOString() }).in("id", due.map((n) => n.id));
+  await sb.from("notifications").delete().is("sent_at", null).lt("fire_at", new Date(now.getTime() - LATE).toISOString());
+  let sent = 0;
+  // Batches of 100, at most 10 per account each (claim_due_notifications in schema.sql), so one account
+  // cannot hold up everyone else. Up to 5 batches a minute.
+  for (let round = 0; round < 5; round++) {
+    const { data: due, error } = await sb.rpc("claim_due_notifications", { batch: 100, per_user: 10 });
+    if (error) throw error;
+    if (!due?.length) break;
+    sent += await deliver(due as Due[]);
+    if (due.length < 100) break;
+  }
+  await sb.from("notifications").delete().lt("sent_at", new Date(now.getTime() - 14 * 86400_000).toISOString());
+  return json({ sent });
+}
+
+async function deliver(due: Due[]): Promise<number> {
+  // At most 100 accounts x 10 devices, inside the API's 1000-row page.
   const { data: subs } = await sb.from("push_subscriptions").select("*").in("user_id", [...new Set(due.map((n) => n.user_id))]);
 
   const jobs = due.flatMap((n) => {
@@ -62,7 +82,7 @@ async function send() {
       actUrl: `${SUPABASE_URL}/functions/v1/push?id=${n.id}`,
     });
     return (subs ?? [])
-      .filter((s) => s.user_id === n.user_id && PUSH_HOSTS.test(new URL(s.endpoint).hostname))
+      .filter((s) => s.user_id === n.user_id && pushable(s.endpoint))
       .map(async (s) => {
         try {
           // A 10 s limit, and all sends in parallel, so one slow endpoint cannot stall everyone's reminders.
@@ -76,9 +96,7 @@ async function send() {
         }
       });
   });
-  const sent = (await Promise.allSettled(jobs)).filter((r) => r.status === "fulfilled" && r.value).length;
-  await sb.from("notifications").delete().lt("sent_at", new Date(now.getTime() - 14 * 86400_000).toISOString());
-  return json({ sent });
+  return (await Promise.allSettled(jobs)).filter((r) => r.status === "fulfilled" && r.value).length;
 }
 
 async function act(id: string, action: string) {
@@ -88,7 +106,8 @@ async function act(id: string, action: string) {
 
   if (action === "done" && n.kind === "TASK") {
     await sb.from("tasks").update({ done_at: now.toISOString() }).eq("id", n.owner_id).eq("user_id", n.user_id);
-  } else if (action === "snooze10" || action === "snooze60") {
+  } else if ((action === "snooze10" || action === "snooze60") && n.source === "plan") {
+    // Only planned reminders can be snoozed, so snoozes cannot snowball into more snoozes.
     const { id: _id, created_at: _c, sent_at: _s, ...rest } = n;
     const at = new Date(now.getTime() + (action === "snooze10" ? 10 : 60) * 60_000);
     // One snooze per button per notification: repeating the request does not stack reminders.

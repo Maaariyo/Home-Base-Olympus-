@@ -215,14 +215,17 @@ export class SupabaseRepo implements Repo {
 
   async syncNotifications(list: PlannedNotification[]) {
     const cutoff = new Date(Date.now() + 60_000).toISOString(); // leave the next minute to the sender
-    const rows = list.filter((n) => n.fire_at > cutoff);
+    // The server caps planned reminders at 3000 per account; keep the soonest 2000 (the list is time-ordered).
+    // Later ones are planned on a later visit, as time moves on.
+    const rows = list.filter((n) => n.fire_at > cutoff).slice(0, 2000);
     const signature = JSON.stringify(rows);
     if (signature === this.lastSync) return;
     const user_id = await this.userId();
     check(await this.sb.from("notifications").delete().eq("source", "plan").is("sent_at", null).gt("fire_at", cutoff));
-    if (rows.length) {
-      const payload = rows.map((n) => ({ ...n, user_id, source: "plan" }));
-      check(await this.sb.from("notifications").upsert(payload, { onConflict: "user_id,key", ignoreDuplicates: true }));
+    const payload = rows.map((n) => ({ ...n, user_id, source: "plan" }));
+    // In chunks: if one fails, the reminders already saved still fire.
+    for (let i = 0; i < payload.length; i += 500) {
+      check(await this.sb.from("notifications").upsert(payload.slice(i, i + 500), { onConflict: "user_id,key", ignoreDuplicates: true }));
     }
     this.lastSync = signature;
   }

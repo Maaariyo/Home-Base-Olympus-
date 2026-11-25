@@ -18,7 +18,10 @@ export function fireTimes(anchor: number, reminders: Reminder[]): number[] {
       out.push(first);
       continue;
     }
-    for (let t = first, n = 0; t < anchor && n < 1000; t += r.every * MIN, n++) out.push(t);
+    // At most 1000 per reminder, keeping the ones nearest the deadline (they matter most).
+    const step = r.every * MIN;
+    const start = Math.max(first, anchor - 1000 * step);
+    for (let t = start; t < anchor; t += step) out.push(t);
   }
   return out;
 }
@@ -139,7 +142,8 @@ export function weeklyDigest(data: Data, now: Date): { at: number; body: string 
   const events = data.events.reduce((n, e) => n + occurrences(e, from, to).length, 0);
   const stats = termStats(data, now);
   const classes = stats.sessions.filter((s) => s.date >= ymd(from) && s.date <= ymd(to) && s.status !== "CANCELLED").length;
-  const below = stats.subjects.filter((x) => x.band === "BELOW").map((x) => `${x.subject.name} (${x.pct?.toFixed(1)}%)`);
+  // Below target includes the amber "at risk" band.
+  const below = stats.subjects.filter((x) => x.band === "BELOW" || x.band === "WATCH").map((x) => `${x.subject.name} (${x.pct?.toFixed(1)}%)`);
   const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const week = deadlines + events + classes
     ? `${count(deadlines, "deadline", "deadlines")}, ${count(events, "event", "events")}, ${count(classes, "class", "classes")}.`
@@ -178,7 +182,8 @@ export function planNotifications(data: Data, now: Date, horizonDays = 30): Plan
 
   const maxLead = Math.max(0, ...data.events.flatMap((e) => e.reminders.map((r) => r.before))) * MIN;
   for (const e of data.events) {
-    for (const o of occurrences(e, now, new Date(horizon + maxLead))) {
+    // From the start of today: an all-day event "starts" at midnight but reminds relative to 09:00.
+    for (const o of occurrences(e, at(ymd(now), "00:00"), new Date(horizon + maxLead))) {
       const anchor = eventAnchor(e, o);
       add({
         key: `e:${e.id}:${o.start.getTime()}`,

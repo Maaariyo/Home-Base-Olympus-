@@ -6,11 +6,14 @@ import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/AppShell";
 import { BandPill } from "@/components/Donut";
 import { buttonClass, Card, Chip, cx, EmptyState, SectionLabel } from "@/components/ui";
-import { band, BAND_STYLE, percent, project } from "@/lib/attendance";
+import { band, BAND_STYLE, percent, project, type Band } from "@/lib/attendance";
 import { addDays, fmtDate, fmtHm, startOfWeek, ymd } from "@/lib/dates";
 import { started } from "@/lib/sessions";
 import { termStats } from "@/lib/stats";
 import { useData } from "@/lib/store";
+
+/** Amber "at risk" is still below target; only Safe (or no classes yet) is on target. */
+const onTarget = (b: Band) => b === "SAFE" || b === "NONE";
 
 const HORIZONS = [
   { id: "week", label: "This week" },
@@ -37,11 +40,11 @@ export default function PlanPage() {
       const after = project(s.tally, own, skip);
       const afterBand = band(after, s.target, data.settings);
       // Below target even with perfect attendance: the skips are not what put it there.
-      const belowAnyway = band(project(s.tally, own, new Set()), s.target, data.settings) === "BELOW";
+      const belowAnyway = !onTarget(band(project(s.tally, own, new Set()), s.target, data.settings));
       return { ...s, after, afterPct: percent(after), afterBand, belowAnyway };
     })
     .sort((a, b) => (a.afterPct ?? 101) - (b.afterPct ?? 101));
-  const pushedBelow = rows.filter((r) => r.afterBand === "BELOW" && !r.belowAnyway);
+  const pushedBelow = rows.filter((r) => !onTarget(r.afterBand) && !r.belowAnyway);
   const belowAnyway = rows.filter((r) => r.belowAnyway);
   const skipped = upcoming.filter((s) => skip.has(s.key));
   const classes = (n: number) => `${n} ${n === 1 ? "class" : "classes"}`;

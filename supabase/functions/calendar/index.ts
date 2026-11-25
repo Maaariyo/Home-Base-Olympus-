@@ -1,7 +1,7 @@
 // Supabase Edge Function "calendar" (Deno). Deploy with: supabase functions deploy calendar --no-verify-jwt
 // GET ?token=<feed token>: the owner's classes, open deadlines and events as an iCalendar feed.
 // Calendar apps cannot sign in, so the unguessable token is the key; Settings can reset it.
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from "jsr:@supabase/supabase-js@2.119.0"; // exact version: this code holds the service key
 import { buildCalendar } from "./ics.ts";
 
 const secretKeys = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -16,7 +16,16 @@ Deno.serve(async (req) => {
   if (!feed) return notFound();
 
   // Service-role reads bypass Row Level Security, so every query is pinned to the feed's owner.
-  const rows = (table: string, columns: string) => sb.from(table).select(columns).eq("user_id", feed.user_id);
+  // Paged: the API returns at most 1000 rows per request.
+  const rows = async (table: string, columns: string) => {
+    const data: unknown[] = [];
+    for (let from = 0; ; from += 1000) {
+      const page = await sb.from(table).select(columns).eq("user_id", feed.user_id).order("id").range(from, from + 999);
+      if (page.error) return page;
+      data.push(...(page.data ?? []));
+      if ((page.data ?? []).length < 1000) return { data, error: null };
+    }
+  };
   const results = await Promise.all([
     rows("terms", "id, start_date, end_date, holidays"),
     rows("subjects", "id, term_id, name"),

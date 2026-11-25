@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { planNotifications } from "./reminders";
-import { ConflictError, getRepo, type AuthState, type Repo } from "./repo";
+import { ConflictError, getRepo, OfflineError, type AuthState, type Repo } from "./repo";
 import type { Session } from "./sessions";
 import type { CalEvent, Data, Status, Task } from "./types";
 
@@ -101,14 +101,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [signedIn, refresh]);
 
-  // Keep the server's reminder queue in step with the data, a moment after the last change.
+  // Keep the server's reminder queue in step with the data, a moment after the last change. Never from the
+  // offline copy: it may be out of date (e.g. a task finished on another device would get reminders again).
+  const syncError = useRef("");
   useEffect(() => {
-    if (!data || repo.mode !== "supabase") return;
+    if (!data || repo.mode !== "supabase" || data.offlineSince) return;
     const timer = setTimeout(() => {
-      repo.syncNotifications(planNotifications(data, new Date())).catch((e) => console.warn("Reminder sync failed", e));
+      repo.syncNotifications(planNotifications(data, new Date())).then(
+        () => (syncError.current = ""),
+        (e) => {
+          const message = e instanceof Error ? e.message : String(e);
+          // Say it once, not on every change: a silent failure would mean reminders quietly stop.
+          if (message !== syncError.current && !(e instanceof OfflineError)) toast(`Reminders couldn't be updated: ${message}`, "error");
+          syncError.current = message;
+        },
+      );
     }, 1500);
     return () => clearTimeout(timer);
-  }, [data, repo]);
+  }, [data, repo, toast]);
 
   const run = useCallback(
     async (fn: (r: Repo) => Promise<unknown>, success?: string) => {

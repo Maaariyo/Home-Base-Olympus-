@@ -292,3 +292,27 @@ test("backup import: rows checked, bad ones dropped with their children, fresh i
   assert.deepEqual(data.settings.taskReminders, []);
   assert.throws(() => prepareImport({ hello: 1 }), /not a Home Base backup/);
 });
+
+test("reminder cap keeps the reminders nearest the deadline", async () => {
+  const { fireTimes } = await import("./reminders.ts");
+  const times = fireTimes(due, [{ before: 1440, every: 1 }]); // every minute for a day: 1440 > 1000
+  assert.equal(times.length, 1000);
+  assert.equal(clock([times[times.length - 1]])[0], "2026-11-19 17:59");
+});
+
+test("an all-day repeating event keeps today's 08:45 reminder when re-planned after midnight", async () => {
+  const { planNotifications } = await import("./reminders.ts");
+  const e = { ...row, id: "fair", title: "Fair", notes: "", category: "OTHER", start_at: new Date(2026, 10, 18).toISOString(), end_at: new Date(2026, 10, 18, 23, 59).toISOString(), all_day: true, location: "", repeat: "WEEKLY", repeat_until: null, skip_dates: [], reminders: [{ before: 15 }] } as CalEvent;
+  const data = { terms: [], subjects: [], grade_items: [], slots: [], marks: [], tasks: [], events: [e], settings: { ...S, weeklyDigest: false } };
+  const at = (h: number) => planNotifications(data, new Date(2026, 10, 25, h)).map((n) => n.fire_at)[0];
+  assert.equal(at(8), new Date(2026, 10, 25, 8, 45).toISOString()); // planned at 08:00 on the day
+  assert.equal(at(9), new Date(2026, 11, 2, 8, 45).toISOString()); // after it fired: next week's
+});
+
+test("weekly digest lists at-risk (amber) subjects as below target", async () => {
+  const { weeklyDigest } = await import("./reminders.ts");
+  const t = { ...term, track_from: "2026-11-02", holidays: [] };
+  const sub = { ...row, id: "mkt", term_id: "term", name: "MKT", code: "", color: "#000", target_pct: null, opening_held: 10, opening_attended: 7 };
+  const data = { terms: [t], subjects: [sub], grade_items: [], slots: [], marks: [], tasks: [], events: [], settings: { ...S, amberOn: true, amberFloor: 65 } };
+  assert.match(weeklyDigest(data, new Date(2026, 10, 18))!.body, /Below target: MKT \(70\.0%\)/);
+});

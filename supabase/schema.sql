@@ -211,7 +211,7 @@ create or replace function public.check_notification() returns trigger language 
 begin
   if current_user = 'authenticated' then
     new.sent_at := null;
-    if new.fire_at < now() - interval '10 minutes' then
+    if new.fire_at < now() - interval '1 minute' then
       raise exception 'Reminder time is in the past' using errcode = 'check_violation';
     end if;
     if (select count(*) from public.notifications where user_id = new.user_id and sent_at is null) >= 3000 then
@@ -223,6 +223,65 @@ end $$;
 drop trigger if exists check_notification on public.notifications;
 create trigger check_notification before insert on public.notifications for each row execute function public.check_notification();
 
--- Push endpoints must be HTTPS (the push function also checks the host against known push services).
+-- Push endpoints: HTTPS on a known browser push service only (the push function checks the same list).
+-- NOT VALID: checks new and changed rows without failing a re-run on rows saved before this rule.
 alter table public.push_subscriptions drop constraint if exists push_subscriptions_https;
-alter table public.push_subscriptions add constraint push_subscriptions_https check (endpoint ~ '^https://');
+alter table public.push_subscriptions drop constraint if exists push_subscriptions_host;
+alter table public.push_subscriptions add constraint push_subscriptions_host check (
+  endpoint ~ '^https://(fcm\.googleapis\.com|android\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com|[a-z0-9-]+\.notify\.windows\.com)/'
+  and char_length(endpoint) <= 1000 and char_length(p256dh) <= 200 and char_length(auth) <= 100
+) not valid;
+
+-- At most 10 devices per account.
+create or replace function public.check_push_subscription() returns trigger language plpgsql as $$
+begin
+  if current_user = 'authenticated' and (select count(*) from public.push_subscriptions where user_id = new.user_id) >= 10 then
+    raise exception 'Too many devices have reminders turned on' using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+drop trigger if exists check_push_subscription on public.push_subscriptions;
+create trigger check_push_subscription before insert on public.push_subscriptions for each row execute function public.check_push_subscription();
+
+-- Size limits, so no account can fill the shared database (the free plan turns read-only when full).
+do $$
+declare c record;
+begin
+  for c in select * from (values
+    ('notifications', 'notifications_size', 'char_length(key) <= 200 and char_length(title) <= 200 and char_length(body) <= 500 and char_length(url) <= 200 and (payload is null or pg_column_size(payload) <= 2000)'),
+    ('tasks', 'tasks_size', 'char_length(notes) <= 5000 and cardinality(assignees) <= 20 and pg_column_size(reminders) <= 2000'),
+    ('events', 'events_size', 'char_length(notes) <= 5000 and char_length(location) <= 200 and pg_column_size(reminders) <= 2000 and pg_column_size(skip_dates) <= 8000'),
+    ('terms', 'terms_size', 'char_length(name) <= 120 and pg_column_size(holidays) <= 20000'),
+    ('subjects', 'subjects_size', 'char_length(name) <= 120 and char_length(code) <= 20 and char_length(color) <= 20'),
+    ('slots', 'slots_size', 'char_length(room) <= 120'),
+    ('settings', 'settings_size', 'pg_column_size(data) <= 20000'),
+    ('calendar_feeds', 'calendar_feeds_size', 'char_length(time_zone) <= 64')
+  ) as v(tbl, name, def) loop
+    execute format('alter table public.%I drop constraint if exists %I', c.tbl, c.name);
+    execute format('alter table public.%I add constraint %I check (%s) not valid', c.tbl, c.name, c.def);
+  end loop;
+end $$;
+
+-- The sender's batches: due reminders, oldest first, at most `per_user` per account, claimed (marked sent)
+-- in the same statement so two overlapping runs never send one twice. Service role only.
+create or replace function public.claim_due_notifications(batch int default 100, per_user int default 10)
+returns setof public.notifications language sql as $$
+  with due as (
+    select id, fire_at, row_number() over (partition by user_id order by fire_at) as n
+    from public.notifications
+    where sent_at is null and fire_at <= now() and fire_at >= now() - interval '6 hours'
+  ), picked as (
+    select id from due where n <= per_user order by fire_at limit batch
+  )
+  update public.notifications set sent_at = now()
+  where id in (select id from picked) and sent_at is null
+  returning *;
+$$;
+revoke all on function public.claim_due_notifications(int, int) from public;
+do $$
+begin
+  -- Supabase grants new functions to its API roles by default; this one must not be callable by users.
+  if exists (select 1 from pg_roles where rolname = 'anon') then revoke all on function public.claim_due_notifications(int, int) from anon; end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then revoke all on function public.claim_due_notifications(int, int) from authenticated; end if;
+  if exists (select 1 from pg_roles where rolname = 'service_role') then grant execute on function public.claim_due_notifications(int, int) to service_role; end if;
+end $$;
