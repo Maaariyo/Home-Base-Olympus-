@@ -7,6 +7,13 @@ export type AuthState =
   /** Arrived from a password-reset email: must choose a new password before using the site. */
   | { kind: "recovery"; email: string };
 
+/** The device has no connection (or the server can't be reached). */
+export class OfflineError extends Error {
+  constructor() {
+    super("You're offline. This change wasn't saved; try again when you're connected.");
+  }
+}
+
 /** The row changed or was deleted on another device since this one loaded it. */
 export class ConflictError extends Error {
   constructor() {

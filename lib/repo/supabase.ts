@@ -1,13 +1,17 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { PlannedNotification } from "../reminders";
 import { DEFAULT_SETTINGS, TABLES, type Data, type Settings, type TableName, type Tables } from "../types";
-import { ConflictError, type AuthState, type NewRow, type Repo } from "./types";
+import { ConflictError, OfflineError, type AuthState, type NewRow, type Repo } from "./types";
 
 type Res<T> = { data: T | null; error: { message: string; code?: string } | null };
+
+const CACHE_PREFIX = "home-base-cache:";
+const unreachable = (message: string) => (typeof navigator !== "undefined" && !navigator.onLine) || /failed to fetch|networkerror|load failed|network request failed/i.test(message);
 
 function check<T>(res: Res<T>): T {
   if (res.error) {
     if (res.error.code === "23505") throw new ConflictError(); // unique key: another device got there first
+    if (unreachable(res.error.message)) throw new OfflineError();
     throw new Error(res.error.message);
   }
   return res.data as T;
@@ -74,6 +78,8 @@ export class SupabaseRepo implements Repo {
 
   async signOut() {
     this.recovery = false;
+    // The offline copy is personal data: never leave it behind on a shared computer.
+    for (const k of Object.keys(localStorage)) if (k.startsWith(CACHE_PREFIX)) localStorage.removeItem(k);
     await this.sb.auth.signOut();
   }
 
@@ -100,14 +106,29 @@ export class SupabaseRepo implements Repo {
     return () => data.subscription.unsubscribe();
   }
 
+  /** Loads everything; with no connection, falls back to the copy saved at the last successful load. */
   async load(): Promise<Data> {
-    const [settings, ...rows] = await Promise.all([
-      this.sb.from("settings").select("data").maybeSingle(),
-      ...TABLES.map((t) => this.sb.from(t).select("*")),
-    ]);
-    const out = { settings: { ...DEFAULT_SETTINGS, ...(check(settings) as { data: Settings } | null)?.data } } as Data;
-    TABLES.forEach((t, i) => ((out[t] as unknown[]) = check(rows[i])));
-    return out;
+    const key = CACHE_PREFIX + (await this.userId());
+    try {
+      const [settings, ...rows] = await Promise.all([
+        this.sb.from("settings").select("data").maybeSingle(),
+        ...TABLES.map((t) => this.sb.from(t).select("*")),
+      ]);
+      const out = { settings: { ...DEFAULT_SETTINGS, ...(check(settings) as { data: Settings } | null)?.data } } as Data;
+      TABLES.forEach((t, i) => ((out[t] as unknown[]) = check(rows[i])));
+      try {
+        localStorage.setItem(key, JSON.stringify({ at: new Date().toISOString(), data: out }));
+      } catch {
+        /* storage full or blocked: offline copy is a convenience */
+      }
+      return out;
+    } catch (e) {
+      const saved = e instanceof OfflineError ? localStorage.getItem(key) : null;
+      if (!saved) throw e;
+      const { at, data } = JSON.parse(saved) as { at: string; data: Data };
+      for (const t of TABLES) (data[t] as unknown[]) ??= [];
+      return { ...data, settings: { ...DEFAULT_SETTINGS, ...data.settings }, offlineSince: at };
+    }
   }
 
   async insert<T extends TableName>(table: T, row: NewRow<T>) {

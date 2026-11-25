@@ -37,8 +37,9 @@ const session = () => ({ access_token: accessToken(), token_type: "bearer", expi
 
 /** Answers Supabase Auth and REST calls; returns the list of calls made. */
 async function mockSupabase(page: Page, { signupDisabled = false } = {}) {
-  const calls: string[] = [];
+  const calls: string[] & { offline?: boolean } = [];
   await page.route("http://supabase.test/**", async (route) => {
+    if (calls.offline) return route.abort("internetdisconnected");
     const req = route.request();
     const url = new URL(req.url());
     const key = `${req.method()} ${url.pathname}`;
@@ -53,6 +54,7 @@ async function mockSupabase(page: Page, { signupDisabled = false } = {}) {
     if (key === "POST /auth/v1/token") return json(200, session());
     if (key === "GET /auth/v1/user" || key === "PUT /auth/v1/user") return json(200, user);
     if (key === "POST /auth/v1/logout") return route.fulfill({ status: 204, headers: cors });
+    if (key === "POST /rest/v1/calendar_feeds") return json(201, { token: "11111111-2222-4333-8444-555555555555" });
     if (url.pathname.startsWith("/rest/v1/")) return json(200, []);
     return json(404, { msg: `not mocked: ${key}` });
   });
@@ -116,5 +118,51 @@ test("a reset link asks for a new password, then opens the planner", async () =>
 test("an expired email link says so", async () => {
   const { page } = await open("#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired");
   await page.getByText("That email link has expired or was already used. Request a new one.").waitFor();
+  await page.context().close();
+});
+
+async function signIn(page: Page) {
+  await page.getByLabel("Email").fill(user.email);
+  await page.getByLabel("Password").fill("secret123");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByRole("heading", { name: "Today" }).waitFor();
+}
+
+test("offline after signing in: the last copy shows with a banner, and a save explains why it failed", async () => {
+  const { page, calls } = await open();
+  await signIn(page);
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  calls.offline = true;
+  await page.context().setOffline(true);
+  await page.reload();
+  await page.getByText(/^Offline: showing your copy from/).waitFor();
+  await page.goto(`${site.url}/tasks`);
+  await page.getByLabel("New task").click();
+  await page.getByPlaceholder("What needs doing?").fill("Written offline");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.getByText("You're offline. This change wasn't saved; try again when you're connected.").waitFor();
+  await page.context().close();
+});
+
+test("calendar feed: Settings creates a private link with Google and iPhone instructions", async () => {
+  const { page, calls } = await open();
+  await signIn(page);
+  await page.goto(`${site.url}/settings`);
+  await page.getByRole("button", { name: "Get my calendar link" }).click();
+  const link = page.getByLabel("Calendar link");
+  assert.equal(await link.inputValue(), "http://supabase.test/functions/v1/calendar?token=11111111-2222-4333-8444-555555555555");
+  assert.ok(calls.includes("POST /rest/v1/calendar_feeds"));
+  await page.getByText("Treat this link like a password").waitFor();
+  await page.context().close();
+});
+
+test("signing out removes the offline copy from the device", async () => {
+  const { page } = await open();
+  await signIn(page);
+  await page.waitForFunction(() => Object.keys(localStorage).some((k) => k.startsWith("home-base-cache:")));
+  await page.goto(`${site.url}/settings`);
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.getByRole("button", { name: "Sign in" }).waitFor();
+  assert.equal(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("home-base-cache:")).length), 0);
   await page.context().close();
 });

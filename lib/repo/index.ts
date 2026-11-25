@@ -13,5 +13,5 @@ export function getRepo(): Repo {
   return repo;
 }
 
-export { ConflictError } from "./types";
+export { ConflictError, OfflineError } from "./types";
 export type { AuthState, NewRow, Repo } from "./types";

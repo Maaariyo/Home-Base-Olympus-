@@ -77,16 +77,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return repo.onAuthChange(() => void refreshAuth());
   }, [repo, refreshAuth]);
 
+  // The service worker keeps the site's pages so it opens with no signal (production builds only).
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("Offline support unavailable", e));
+    }
+  }, []);
+
   const signedIn = auth?.kind === "signed-in";
   useEffect(() => {
     if (!signedIn) return setData(null);
     void refresh();
     // Another device may have changed something: reload whenever the tab comes back.
     const onFocus = () => document.visibilityState === "visible" && void refresh();
+    const onOnline = () => void refresh();
     document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("online", onOnline);
     const tick = setInterval(() => setNow(new Date()), 60_000);
     return () => {
       document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("online", onOnline);
       clearInterval(tick);
     };
   }, [signedIn, refresh]);

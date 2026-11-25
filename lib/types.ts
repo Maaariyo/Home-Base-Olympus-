@@ -152,4 +152,8 @@ export type TableName = keyof Tables;
 /** In foreign-key order: an import inserts them in this sequence. */
 export const TABLES: TableName[] = ["terms", "subjects", "grade_items", "slots", "marks", "tasks", "events"];
 
-export type Data = { [K in TableName]: Tables[K][] } & { settings: Settings };
+export type Data = { [K in TableName]: Tables[K][] } & {
+  settings: Settings;
+  /** Set when this is the copy saved on the device because the server could not be reached. */
+  offlineSince?: string;
+};

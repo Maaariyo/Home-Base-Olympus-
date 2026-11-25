@@ -73,7 +73,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       </aside>
 
-      <main className="relative min-w-0 flex-1 overflow-y-auto pb-[calc(76px+env(safe-area-inset-bottom))] md:pb-8">{children}</main>
+      <main className="relative min-w-0 flex-1 overflow-y-auto pb-[calc(76px+env(safe-area-inset-bottom))] md:pb-8">
+        {data.offlineSince && (
+          <div role="status" className="sticky top-0 z-20 bg-warn-bg px-4 py-2 text-center text-sm font-semibold text-warn">
+            Offline: showing your copy from {new Date(data.offlineSince).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}. Changes need a connection.
+          </div>
+        )}
+        {children}
+      </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-[900] flex border-t border-line bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         {NAV.map(({ href, label, Icon }) => (

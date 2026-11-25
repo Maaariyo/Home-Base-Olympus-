@@ -134,3 +134,57 @@ test("what-if: skipping a class lowers that subject's projection, unticking rest
   assert.match(await summary.innerText(), /^Skipping \d+ class/);
   await page.context().close();
 });
+
+test("grades: the subject panel shows what's needed, and updates when a score is entered", async () => {
+  const { page } = await open("/attendance");
+  await page.getByRole("button", { name: /Marketing Management/ }).click();
+  await page.getByText("You need 70.7% on average across the remaining 75% to finish at 70%.").waitFor();
+  const project = page.getByLabel("Score for Group project, out of 100");
+  await project.fill("80");
+  await project.press("Enter");
+  await page.getByText("You need 66% on average across the remaining 50% to finish at 70%.").waitFor();
+  // Add a component; the weights now add up to more than 100, which is called out.
+  await page.getByRole("button", { name: "Add a graded component" }).click();
+  await page.getByLabel("Component name").fill("Quiz 2");
+  await page.getByLabel("Weight, percent of the final mark").fill("10");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByText("Weights add up to 110%, not 100%.").waitFor();
+  await page.context().close();
+});
+
+test("timetable import: pasted spreadsheet cells add classes and new subjects, duplicates are skipped", async () => {
+  const { page } = await open("/timetable");
+  const paste = "Day\tStart\tEnd\tSubject\tCode\tRoom\tType\nThu\t4:00 pm\t5:15 pm\tBusiness Ethics\tBE\tLT 4\tLecture\nSat\t09:00\t11:30\tBusiness Ethics\tBE\tLab 1\tLab\nFunday\t09:00\t10:00\tX\t\t\t\n";
+  await page.getByRole("button", { name: "Import timetable" }).click();
+  await page.getByLabel("Timetable rows").fill(paste);
+  await page.getByText("Row 4: “Funday” is not a day.").waitFor();
+  await page.getByText("New subjects: Business Ethics.", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "Add 2 classes" }).click();
+  await page.getByText("Added 2 classes").waitFor();
+  assert.ok((await page.getByText("BE", { exact: true }).count()) >= 2, "both classes on the grid");
+  // The same rows again add nothing.
+  await page.getByRole("button", { name: "Import timetable" }).click();
+  await page.getByLabel("Timetable rows").fill(paste);
+  await page.getByRole("button", { name: "Add 2 classes" }).click();
+  await page.getByText("Added 0 classes; 2 already in your timetable").waitFor();
+  await page.context().close();
+});
+
+test("offline: after one visit the site opens with no connection", async () => {
+  const { page, errors } = await open("/");
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.context().setOffline(true);
+  await page.goto(site.url + "/calendar");
+  await page.getByRole("heading", { name: "Calendar" }).waitFor();
+  await page.goto(site.url + "/attendance");
+  await page.getByRole("heading", { name: "Attendance" }).waitFor();
+  assert.deepEqual(errors.filter((e) => !/ERR_INTERNET_DISCONNECTED|Failed to load resource/.test(e)), []);
+  await page.context().close();
+});
+
+test("settings: the calendar feed explains it needs Supabase in demo mode; weekly digest is on", async () => {
+  const { page } = await open("/settings");
+  await page.getByText("Available once the site is connected to Supabase.").first().waitFor();
+  assert.equal(await page.getByLabel(/^Weekly digest/).isChecked(), true);
+  await page.context().close();
+});
