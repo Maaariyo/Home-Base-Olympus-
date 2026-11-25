@@ -103,7 +103,7 @@ npm run lint
 
 `npm test` runs the acceptance tests in [`lib/logic.test.ts`](lib/logic.test.ts) (attendance maths, reminder timing, timetable rules).
 
-Browser tests in [`e2e/`](e2e) (26) click through the demo site and the account screens against a mocked Supabase. They need the `playwright` dev dependency, which is not added yet; once it is, run `npm run test:e2e`. [`SPEC.md`](SPEC.md) is the product spec; [`CLAUDE.md`](CLAUDE.md) holds the rules for AI coding sessions.
+Browser tests in [`e2e/`](e2e) (29) click through the demo site and the account screens against a mocked Supabase. They need the `playwright` dev dependency, which is not added yet; once it is, run `npm run test:e2e`. [`SPEC.md`](SPEC.md) is the product spec; [`CLAUDE.md`](CLAUDE.md) holds the rules for AI coding sessions.
 
 ## Limits to know
 
@@ -112,4 +112,5 @@ Browser tests in [`e2e/`](e2e) (26) click through the demo site and the account 
 - **Free Supabase projects pause after 7 days with little activity.** Reminders stop until you resume the project in the dashboard. Reminders more than 6 hours late are dropped rather than sent late.
 - **Notification buttons:** browsers show at most two (Present / Absent, Done / Snooze). iPhone shows none: tapping a notification opens the site.
 - **Quiet hours and reminder times follow the device's time zone** at the moment you last opened the site.
-- **Recurring reminders are planned 30 days ahead** and topped up each time you open the site. Open it at least once a month.
+- **Recurring reminders are planned 30 days ahead** and topped up each time you open the site, up to 2000 at a time (soonest first). Open it at least once a month.
+- **Changing a class's time or day** applies from the date you pick; earlier classes keep their time and attendance, and marks from that date move with the class.

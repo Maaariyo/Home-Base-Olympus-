@@ -39,7 +39,8 @@ export function sessionsBetween(from: string, to: string, term: Term, slots: Slo
         date: d,
         start_time: s.start_time,
         end_time: s.end_time,
-        weight: s.weight,
+        // A marked session keeps the weight it was recorded with, even if the class's weight changes later.
+        weight: mark?.weight ?? s.weight,
         room: s.room,
         status: mark?.status ?? "UNMARKED",
         mark,

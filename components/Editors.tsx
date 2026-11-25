@@ -82,7 +82,7 @@ function TaskSheet({ task, onClose }: { task?: Task; onClose: () => void }) {
           <Input required maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What needs doing?" autoFocus={!task} />
         </Field>
         <Field label="Notes">
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={inputClass} />
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={5000} className={inputClass} />
         </Field>
         <NoteLinks notes={notes} />
         <Field label="Due">
@@ -112,6 +112,7 @@ function TaskSheet({ task, onClose }: { task?: Task; onClose: () => void }) {
             }}
             onBlur={addPerson}
             placeholder="Type a name, press Enter"
+            maxLength={80}
             className={inputClass + " mt-2"}
           />
           <datalist id="known-people">
@@ -265,7 +266,7 @@ function EventSheet({ event, date, onClose }: { event?: CalEvent; date?: string;
         </div>
         {error && <p className="text-sm text-danger">{error}</p>}
         <Field label="Location">
-          <Input value={location} onChange={(e) => setLocation(e.target.value)} />
+          <Input value={location} maxLength={200} onChange={(e) => setLocation(e.target.value)} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Repeat">
@@ -283,7 +284,7 @@ function EventSheet({ event, date, onClose }: { event?: CalEvent; date?: string;
           )}
         </div>
         <Field label="Notes">
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className={inputClass} />
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} maxLength={5000} className={inputClass} />
         </Field>
         <NoteLinks notes={notes} />
         <div>

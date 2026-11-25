@@ -241,3 +241,31 @@ test("security headers: another site cannot show this one in a frame", async () 
   assert.ok(blocked.length > 0 || frame.url().startsWith("chrome-error://"), "the browser reports the frame was refused");
   await page.context().close();
 });
+
+test("changing a class's time keeps marks from that date on with the class (e.g. a cancellation made in advance)", async () => {
+  const { page } = await open("/calendar");
+  await page.getByRole("button", { name: "week", exact: true }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  // Cancel next week's first class in advance.
+  await page.getByRole("button", { name: /Marketing Management|Corporate Finance|Operations|Organisational Behaviour|Business Analytics Lab/ }).first().click();
+  await page.getByRole("button", { name: "Cancelled" }).click();
+  await page.keyboard.press("Escape");
+  const store = () => page.evaluate(() => JSON.parse(localStorage.getItem("home-base-demo-v1")!));
+  await until(async () => (await store()).marks.some((m: { status: string }) => m.status === "CANCELLED" && m), "the cancellation is saved");
+  const today = await page.evaluate(() => new Date().toLocaleDateString("en-CA"));
+  const cancelled = (await store()).marks.filter((m: { status: string; date: string }) => m.status === "CANCELLED" && m.date > today).pop();
+  // Move that class 15 minutes later, from today.
+  await page.goto(site.url + "/timetable");
+  await page.locator(`[data-slot="${cancelled.slot_id}"]`).click();
+  await page.locator('input[type="time"]').first().fill(`${cancelled.start_time.slice(0, 2)}:${String(Number(cancelled.start_time.slice(3)) + 15).padStart(2, "0")}`);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByText("Timetable saved").waitFor();
+  const after = await store();
+  const mark = after.marks.find((m: { id: string }) => m.id === cancelled.id);
+  const newSlot = after.slots.find((s: { id: string }) => s.id === mark.slot_id);
+  assert.notEqual(mark.slot_id, cancelled.slot_id, "the mark moved to the new class");
+  assert.equal(newSlot.effective_from, today);
+  assert.equal(mark.status, "CANCELLED");
+  assert.equal(mark.start_time, newSlot.start_time);
+  await page.context().close();
+});

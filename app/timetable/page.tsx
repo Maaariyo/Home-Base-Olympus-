@@ -5,15 +5,16 @@ import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/AppShell";
 import { Sheet } from "@/components/Sheet";
 import { Button, Card, Chip, Field, IconButton, Input, inputClass, SectionLabel } from "@/components/ui";
-import { addDays, DAY_NAMES, fmtDate, fmtHm, today } from "@/lib/dates";
+import { addDays, DAY_NAMES, dow, fmtDate, fmtHm, today } from "@/lib/dates";
 import { activeTerm } from "@/lib/sessions";
 import { useData } from "@/lib/store";
 import { parseTimetable, TEMPLATE, toTimetableCsv } from "@/lib/timetable-import";
 import type { Holiday, Slot, SlotKind, Subject, Term } from "@/lib/types";
 
-/** Downloads the current timetable in the import layout, so a classmate can import it. */
-function shareCsv(slots: Slot[], subject: Map<string, Subject>) {
-  const rows = slots.map((s) => ({ day: s.day, start: s.start_time, end: s.end_time, subject: subject.get(s.subject_id)?.name ?? "", code: subject.get(s.subject_id)?.code ?? "", room: s.room, kind: s.kind }));
+/** Downloads the timetable as it stands on `date` (not later scheduled changes), in the import layout. */
+function shareCsv(slots: Slot[], subject: Map<string, Subject>, date: string) {
+  const current = slots.filter((s) => s.effective_from <= date && (!s.effective_to || s.effective_to >= date));
+  const rows = current.map((s) => ({ day: s.day, start: s.start_time, end: s.end_time, subject: subject.get(s.subject_id)?.name ?? "", code: subject.get(s.subject_id)?.code ?? "", room: s.room, kind: s.kind, weight: s.weight }));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([toTimetableCsv(rows)], { type: "text/csv" }));
   a.download = "timetable.csv";
@@ -79,7 +80,7 @@ export default function TimetablePage() {
           <section>
             <div className="mb-2 flex items-center justify-between">
               <SectionLabel className="mb-0">Weekly classes</SectionLabel>
-              <Button variant="ghost" className="py-1.5" onClick={() => shareCsv(slots, subject)}>
+              <Button variant="ghost" className="py-1.5" onClick={() => shareCsv(slots, subject, term.start_date > t0 ? term.start_date : t0)}>
                 <Download size={16} /> Share as CSV
               </Button>
             </div>
@@ -101,6 +102,7 @@ export default function TimetablePage() {
                           key={s.id}
                           type="button"
                           onClick={() => setSlotEdit({ slot: s, day: d })}
+                          data-slot={s.id}
                           className="block w-full rounded-xl border-l-4 bg-card px-3 py-2 text-left shadow-sm"
                           style={{ borderColor: subject.get(s.subject_id)?.color }}
                         >
@@ -159,7 +161,7 @@ function TermCard({ term }: { term: Term | null }) {
         <div className="font-bold">{term ? "Term" : "Set up your term"}</div>
         <div className="grid gap-3 sm:grid-cols-4">
           <Field label="Name">
-            <Input required value={name} onChange={(e) => setName(e.target.value)} />
+            <Input required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Starts">
             <Input type="date" required value={start} onChange={(e) => setStart(e.target.value)} />
@@ -188,7 +190,7 @@ function TermCard({ term }: { term: Term | null }) {
           </div>
           <div className="mt-2 flex gap-2">
             <Input type="date" value={hDate} min={start} max={end} onChange={(e) => setHDate(e.target.value)} className="w-auto" aria-label="Holiday date" />
-            <Input value={hLabel} onChange={(e) => setHLabel(e.target.value)} placeholder="Label (optional)" aria-label="Holiday label" />
+            <Input value={hLabel} maxLength={120} onChange={(e) => setHLabel(e.target.value)} placeholder="Label (optional)" aria-label="Holiday label" />
             <Button
               variant="secondary"
               disabled={!hDate}
@@ -264,11 +266,11 @@ function SubjectSheet({ subject, term, onClose }: { subject?: Subject; term: Ter
         <div className="grid grid-cols-3 gap-3">
           <div className="col-span-2">
             <Field label="Name">
-              <Input required value={name} onChange={(e) => setName(e.target.value)} autoFocus={!subject} />
+              <Input required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} autoFocus={!subject} />
             </Field>
           </div>
           <Field label="Code">
-            <Input value={code} onChange={(e) => setCode(e.target.value)} />
+            <Input value={code} maxLength={20} onChange={(e) => setCode(e.target.value)} />
           </Field>
         </div>
         <div>
@@ -312,26 +314,50 @@ function SlotSheet({ slot, day, term, subjects, onClose }: { slot?: Slot; day: n
   // New slots start at tracking start during first setup, otherwise today. Edits to a slot with history start today.
   const [from, setFrom] = useState(slot ? (hasHistory ? t0 : slot.effective_from) : firstSetup ? term.track_from : t0 > term.start_date ? t0 : term.start_date);
   const [error, setError] = useState("");
-  const marked = !!slot && data.marks.some((m) => m.slot_id === slot.id);
+  const marks = slot ? data.marks.filter((m) => m.slot_id === slot.id) : [];
 
   const save = async () => {
     if (end <= start) return setError("The class must end after it starts.");
     const fields = { subject_id: subjectId, day: d, start_time: start, end_time: end, room: room.trim(), kind, weight };
+    // Room and type never change what attendance means, so they are edited in place even with history.
+    const sameMeaning = !!slot && subjectId === slot.subject_id && d === slot.day && start === slot.start_time && end === slot.end_time && weight === slot.weight;
+
+    if (!slot) return finish(await run((r) => r.insert("slots", { id: crypto.randomUUID(), ...fields, effective_from: from, effective_to: null }), "Timetable saved"));
+    if (!marks.length || sameMeaning) return finish(await run((r) => r.update("slots", slot, marks.length ? fields : { ...fields, effective_from: from }), "Timetable saved"));
+
+    // The class has attendance marks: never rewrite its past. It ends the day before `from`, and a new
+    // class starts on `from`. Marks dated from then on move to the new class (today's mark, cancellations
+    // made in advance), if the new class still meets that weekday.
+    if (from <= slot.effective_from) return setError(`This class has attendance marks. Pick a date after ${fmtDate(slot.effective_from)}, so earlier classes keep their time.`);
+    if (slot.effective_to && from > slot.effective_to) return setError(`This class ends on ${fmtDate(slot.effective_to)}. Pick a date up to then.`);
+    const moving = marks.filter((m) => m.date >= from);
+    const fits = moving.filter((m) => dow(m.date) === d);
+    const lost = moving.length - fits.length;
+    if (lost && !confirm(`${lost} marked ${lost === 1 ? "class" : "classes"} on or after ${fmtDate(from)} ${lost === 1 ? "falls" : "fall"} on a different weekday from the new time and will no longer count. Continue?`)) return;
     const ok = await run(async (r) => {
-      if (!slot) return r.insert("slots", { id: crypto.randomUUID(), ...fields, effective_from: from, effective_to: null });
-      if (from <= slot.effective_from) return r.update("slots", slot, { ...fields, effective_from: from });
-      // A change from a later date ends the old slot, so past marks keep their original class.
-      await r.update("slots", slot, { effective_to: addDays(from, -1) });
-      await r.insert("slots", { id: crypto.randomUUID(), ...fields, effective_from: from, effective_to: slot.effective_to });
+      const id = crypto.randomUUID();
+      await r.insert("slots", { id, ...fields, effective_from: from, effective_to: slot.effective_to });
+      try {
+        await r.update("slots", slot, { effective_to: addDays(from, -1) });
+      } catch (e) {
+        await r.remove("slots", id); // the old class changed elsewhere: leave the timetable as it was
+        throw e;
+      }
+      for (const m of fits) await r.update("marks", m, { slot_id: id, subject_id: subjectId, start_time: start, end_time: end, weight });
     }, "Timetable saved");
-    if (ok) onClose();
+    finish(ok);
   };
+  const finish = (ok: boolean) => ok && onClose();
 
   const removeSlot = async () => {
     if (!slot) return;
-    // A slot with attendance marks is ended rather than deleted, so its marks keep counting.
-    const ok = marked
-      ? await run((r) => r.update("slots", slot, { effective_to: addDays(from > slot.effective_from ? from : t0, -1) }), "Class removed from the timetable")
+    // A class with attendance is ended rather than deleted: it stops after its last attended or missed
+    // session (or yesterday), so every recorded session keeps counting.
+    const counted = marks.filter((m) => m.status !== "CANCELLED" && m.status !== "UNMARKED").map((m) => m.date);
+    const last = [addDays(t0, -1), ...counted].sort().pop()!;
+    const endOn = slot.effective_to && slot.effective_to < last ? slot.effective_to : last < slot.effective_from ? addDays(slot.effective_from, -1) : last;
+    const ok = marks.length
+      ? await run((r) => r.update("slots", slot, { effective_to: endOn }), "Class removed from the timetable")
       : await run((r) => r.remove("slots", slot.id), "Class deleted");
     if (ok) onClose();
   };
@@ -387,7 +413,7 @@ function SlotSheet({ slot, day, term, subjects, onClose }: { slot?: Slot; day: n
           </Field>
         </div>
         <Field label="Room">
-          <Input value={room} onChange={(e) => setRoom(e.target.value)} />
+          <Input value={room} maxLength={120} onChange={(e) => setRoom(e.target.value)} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Type">
@@ -412,8 +438,11 @@ function SlotSheet({ slot, day, term, subjects, onClose }: { slot?: Slot; day: n
             </select>
           </Field>
         </div>
-        <Field label={slot ? "Apply from" : "Starts from"} hint={hasHistory ? "Classes before this date keep their current time and marks." : undefined}>
-          <Input type="date" required value={from} min={term.start_date} max={term.end_date} onChange={(e) => setFrom(e.target.value)} />
+        <Field
+          label={slot ? "Apply from" : "Starts from"}
+          hint={marks.length ? "Classes before this date keep their time and attendance; marks from this date on move with the class." : hasHistory ? "Classes before this date keep their current time." : undefined}
+        >
+          <Input type="date" required value={from} min={marks.length && slot ? addDays(slot.effective_from, 1) : term.start_date} max={slot?.effective_to ?? term.end_date} onChange={(e) => setFrom(e.target.value)} />
         </Field>
         {error && <p className="text-sm text-danger">{error}</p>}
       </form>
@@ -461,7 +490,7 @@ function ImportSheet({ term, onClose }: { term: Term; onClose: () => void }) {
           continue;
         }
         seen.add(key);
-        await r.insert("slots", { id: crypto.randomUUID(), subject_id, day: row.day, start_time: row.start, end_time: row.end, room: row.room, kind: row.kind, weight: row.kind === "LAB" ? 2 : 1, effective_from: from, effective_to: null });
+        await r.insert("slots", { id: crypto.randomUUID(), subject_id, day: row.day, start_time: row.start, end_time: row.end, room: row.room, kind: row.kind, weight: row.weight, effective_from: from, effective_to: null });
         added++;
       }
     });
@@ -485,7 +514,7 @@ function ImportSheet({ term, onClose }: { term: Term; onClose: () => void }) {
     >
       <div className="space-y-4 px-5 pb-5">
         <p className="text-sm text-muted">
-          Copy the cells from Excel or Google Sheets and paste them below, or choose a CSV file. The first row must name the columns: <b className="text-ink">Day, Start, End, Subject</b>, and optionally Code, Room and Type (Lecture, Tutorial or Lab).
+          Copy the cells from Excel or Google Sheets and paste them below, or choose a CSV file. The first row must name the columns: <b className="text-ink">Day, Start, End, Subject</b>, and optionally Code, Room, Type (Lecture, Tutorial or Lab) and Counts (1, or 2 for a class that counts twice).
         </p>
         <div className="flex flex-wrap gap-2">
           <a href={`data:text/csv;charset=utf-8,${encodeURIComponent(TEMPLATE)}`} download="timetable-template.csv" className="inline-flex items-center rounded-xl border border-line bg-card px-3 py-2 text-sm font-semibold">

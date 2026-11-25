@@ -74,10 +74,14 @@ function fold(line: string): string {
   return out;
 }
 
-function alarms(reminders: Reminder[], title: string): string[] {
+/** `offset`: minutes after the item's start that reminders count from (all-day items: 09:00, like the app). */
+function alarms(reminders: Reminder[], title: string, offset = 0): string[] {
   // Calendar apps cannot express "every N hours until due"; only the first alert of a range is kept.
   const valid = reminders.filter((r) => Number.isInteger(r?.before) && r.before >= 0 && r.before <= 366 * 1440);
-  return [...new Set(valid.map((r) => r.before))].flatMap((m) => ["BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${text(title)}`, `TRIGGER:-PT${m}M`, "END:VALARM"]);
+  return [...new Set(valid.map((r) => r.before))].flatMap((m) => {
+    const delta = offset - m;
+    return ["BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${text(title)}`, delta >= 0 ? `TRIGGER:PT${delta}M` : `TRIGGER:-PT${-delta}M`, "END:VALARM"];
+  });
 }
 
 export function buildCalendar(f: FeedInput, now: Date): string {
@@ -145,9 +149,10 @@ export function buildCalendar(f: FeedInput, now: Date): string {
       ...(e.all_day
         ? [`DTSTART;VALUE=DATE:${dateOnly(start.ymd)}`, `DTEND;VALUE=DATE:${dateOnly(addDays(end.ymd, 1))}`]
         : [`DTSTART;TZID=${tz}:${local(start.ymd, start.hm)}`, `DTEND;TZID=${tz}:${local(end.ymd, end.hm)}`]),
-      ...(freq ? [`RRULE:FREQ=${freq}${e.repeat_until ? `;UNTIL=${utc(zonedToUtc(e.repeat_until, "23:59", tz))}` : ""}`] : []),
+      // UNTIL must match DTSTART's type: a date for all-day events, a UTC time otherwise.
+      ...(freq ? [`RRULE:FREQ=${freq}${e.repeat_until && isDate(e.repeat_until) ? `;UNTIL=${e.all_day ? dateOnly(e.repeat_until) : utc(zonedToUtc(e.repeat_until, "23:59", tz))}` : ""}`] : []),
       ...(freq && skip.length ? [e.all_day ? `EXDATE;VALUE=DATE:${skip.join(",")}` : `EXDATE;TZID=${tz}:${skip.join(",")}`] : []),
-      ...alarms(e.reminders, e.title),
+      ...alarms(e.reminders, e.title, e.all_day ? 540 : 0),
     ]);
   }
 

@@ -10,6 +10,8 @@ export interface ImportRow {
   code: string;
   room: string;
   kind: SlotKind;
+  /** 1, or 2 for a class that counts twice (default: 2 for labs). */
+  weight: number;
 }
 
 export const TEMPLATE = "Day,Start,End,Subject,Code,Room,Type\nMon,09:30,10:45,Marketing Management,MKT,LT 2,Lecture\nWed,14:00,16:30,Business Analytics Lab,BA,Lab 4,Lab\n";
@@ -22,6 +24,7 @@ const COLUMNS: Record<keyof Omit<ImportRow, "line">, string[]> = {
   code: ["code", "course code", "subject code"],
   room: ["room", "venue", "location", "classroom"],
   kind: ["type", "kind", "session type"],
+  weight: ["counts", "counts as", "weight"],
 };
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -34,7 +37,8 @@ const KIND_LABELS: Record<SlotKind, string> = { LECTURE: "Lecture", TUTORIAL: "T
 const FORMULA = /^[=+\-@]/;
 const csvCell = (v: string) => {
   const s = FORMULA.test(v) ? `'${v}` : v;
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  // Also quote ; and tabs: spreadsheets in some regions split on those.
+  return /[",;\t\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
 /** The timetable in the same layout the importer reads, for sharing with a classmate. */
@@ -42,8 +46,8 @@ export function toTimetableCsv(rows: Omit<ImportRow, "line">[]): string {
   const lines = rows
     .slice()
     .sort((a, b) => a.day - b.day || a.start.localeCompare(b.start))
-    .map((r) => [DAY_LABELS[r.day - 1], r.start, r.end, r.subject, r.code, r.room, KIND_LABELS[r.kind]].map(csvCell).join(","));
-  return ["Day,Start,End,Subject,Code,Room,Type", ...lines].join("\n") + "\n";
+    .map((r) => [DAY_LABELS[r.day - 1], r.start, r.end, r.subject, r.code, r.room, KIND_LABELS[r.kind], String(r.weight)].map(csvCell).join(","));
+  return ["Day,Start,End,Subject,Code,Room,Type,Counts", ...lines].join("\n") + "\n";
 }
 
 /** Splits one line, honouring "quoted, fields" and "" escapes. */
@@ -65,9 +69,10 @@ function splitLine(line: string, sep: string): string[] {
   return out;
 }
 
-/** "9:30", "09.30", "9:30 am", "2 PM", "14:00" -> "HH:MM", or null. */
+/** "9:30", "09.30", "9:30 am", "2 PM", "14:00", "9:30:00" (Google Sheets) -> "HH:MM", or null. */
 export function parseTime(v: string): string | null {
-  const m = v.trim().match(/^(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?m?\.?$/i) ?? v.trim().match(/^(\d{1,2})[:.](\d{2})$/);
+  const t = v.trim().replace(/^(\d{1,2}[:.]\d{2})[:.]\d{2}/, "$1"); // drop seconds
+  const m = t.match(/^(\d{1,2})(?:[:.](\d{2}))?\s*([ap])\.?m?\.?$/i) ?? t.match(/^(\d{1,2})[:.](\d{2})$/);
   if (!m) return null;
   let h = Number(m[1]);
   const min = Number(m[2] ?? 0);
@@ -126,7 +131,11 @@ export function parseTimetable(text: string): { rows: ImportRow[]; errors: strin
               ? "ends before it starts"
               : null;
     if (problem) errors.push(`Row ${line}: ${problem}.`);
-    else rows.push({ line, day: day!, start: start!, end: end!, subject: subject.slice(0, 120), code: get("code").slice(0, 20), room: get("room").slice(0, 60), kind });
+    else {
+      const counts = get("weight").trim();
+      const weight = counts === "1" || counts === "2" ? Number(counts) : kind === "LAB" ? 2 : 1;
+      rows.push({ line, day: day!, start: start!, end: end!, subject: subject.slice(0, 120), code: get("code").slice(0, 20), room: get("room").slice(0, 120), kind, weight });
+    }
   });
   return { rows, errors };
 }

@@ -71,3 +71,11 @@ test("feed: hostile or broken values cannot break the file", () => {
   assert.match(ics, /TRIGGER:-PT30M/);
   assert.doesNotMatch(ics, /TRIGGER:-PT-5M|TRIGGER:-PT1\.5M/);
 });
+
+test("all-day events: alerts count from 09:00 like the app, and repeats end on a date", () => {
+  const fair = { ...base.events[1], repeat: "WEEKLY", repeat_until: "2026-12-31", reminders: [{ before: 15 }, { before: 1440 }] };
+  const text = unfold(buildCalendar({ ...base, events: [fair] }, new Date("2026-11-18T00:00:00Z")));
+  assert.match(text, /RRULE:FREQ=WEEKLY;UNTIL=20261231\r\n/);
+  assert.match(text, /TRIGGER:PT525M/); // 08:45 on the day
+  assert.match(text, /TRIGGER:-PT900M/); // 09:00 the day before
+});

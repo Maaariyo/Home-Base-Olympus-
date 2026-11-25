@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { cleanSettings } from "../backup";
 import { NO_OWNER, type PlannedNotification } from "../reminders";
-import { DEFAULT_SETTINGS, TABLES, type Data, type Settings, type TableName, type Tables } from "../types";
+import { TABLES, type Data, type Settings, type TableName, type Tables } from "../types";
 import { ConflictError, OfflineError, type AuthState, type NewRow, type Repo } from "./types";
 
 type Res<T> = { data: T | null; error: { message: string; code?: string } | null };
@@ -55,6 +56,16 @@ export class SupabaseRepo implements Repo {
     this.sb = createClient(url, anonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
   }
 
+  /** Every row of a table, in pages: the API returns at most 1000 rows per request and says nothing about the rest. */
+  private async all<T>(table: string, columns = "*"): Promise<T[]> {
+    const out: T[] = [];
+    for (let from = 0; ; from += 1000) {
+      const page = check(await this.sb.from(table).select(columns).order("id").range(from, from + 999)) as T[];
+      out.push(...page);
+      if (page.length < 1000) return out;
+    }
+  }
+
   private async userId() {
     const { data } = await this.sb.auth.getSession();
     const id = data.session?.user.id;
@@ -68,11 +79,17 @@ export class SupabaseRepo implements Repo {
       // Next.js router has written its own initial history entry, which still contains them; its state is kept.
       await Promise.resolve();
       this.cleanUrl = false;
-      history.replaceState(history.state, "", window.location.pathname + window.location.search);
+      history.replaceState(history.state, "", window.location.pathname); // query and hash both carry link data
     }
     if (this.pendingRecovery) {
       const tokens = this.pendingRecovery;
       this.pendingRecovery = null;
+      // Never let a link replace a session that is already open: a crafted "reset" link could otherwise
+      // switch someone into another account without noticing.
+      if ((await this.sb.auth.getSession()).data.session) {
+        this.linkError = "You're already signed in. To use a password reset link, sign out first, then open the link again.";
+        return this.getAuth();
+      }
       // Set first: setSession fires SIGNED_IN, which re-reads auth before this call returns.
       this.recovery = true;
       const { error } = await this.sb.auth.setSession(tokens);
@@ -84,6 +101,12 @@ export class SupabaseRepo implements Repo {
     const { data } = await this.sb.auth.getSession();
     const email = data.session?.user.email;
     if (!email) return this.linkError ? { kind: "signed-out", notice: this.linkError } : { kind: "signed-out" };
+    if (this.linkError && !this.recovery) {
+      // A link could not be used while signed in: say so once, then carry on as normal.
+      const notice = this.linkError;
+      this.linkError = null;
+      return { kind: "signed-in", email, notice };
+    }
     return this.recovery ? { kind: "recovery", email } : { kind: "signed-in", email };
   }
 
@@ -112,7 +135,9 @@ export class SupabaseRepo implements Repo {
     }
     // The offline copy is personal data: never leave it behind on a shared computer.
     for (const k of Object.keys(localStorage)) if (k.startsWith(CACHE_PREFIX)) localStorage.removeItem(k);
-    await this.sb.auth.signOut();
+    // Signing out everywhere needs the server; offline, at least sign out on this device.
+    const { error } = await this.sb.auth.signOut();
+    if (error) await this.sb.auth.signOut({ scope: "local" });
   }
 
   async requestPasswordReset(email: string) {
@@ -144,12 +169,9 @@ export class SupabaseRepo implements Repo {
   async load(): Promise<Data> {
     const key = CACHE_PREFIX + (await this.userId());
     try {
-      const [settings, ...rows] = await Promise.all([
-        this.sb.from("settings").select("data").maybeSingle(),
-        ...TABLES.map((t) => this.sb.from(t).select("*")),
-      ]);
-      const out = { settings: { ...DEFAULT_SETTINGS, ...(check(settings) as { data: Settings } | null)?.data } } as Data;
-      TABLES.forEach((t, i) => ((out[t] as unknown[]) = check(rows[i])));
+      const [settings, ...rows] = await Promise.all([this.sb.from("settings").select("data").maybeSingle(), ...TABLES.map((t) => this.all(t))]);
+      const out = { settings: cleanSettings((check(settings) as { data: Settings } | null)?.data) } as Data;
+      TABLES.forEach((t, i) => ((out[t] as unknown[]) = rows[i]));
       try {
         localStorage.setItem(key, JSON.stringify({ at: new Date().toISOString(), data: out }));
       } catch {
@@ -161,7 +183,7 @@ export class SupabaseRepo implements Repo {
       if (!saved) throw e;
       const { at, data } = JSON.parse(saved) as { at: string; data: Data };
       for (const t of TABLES) (data[t] as unknown[]) ??= [];
-      return { ...data, settings: { ...DEFAULT_SETTINGS, ...data.settings }, offlineSince: at };
+      return { ...data, settings: cleanSettings(data.settings), offlineSince: at };
     }
   }
 
@@ -193,7 +215,7 @@ export class SupabaseRepo implements Repo {
   async replaceAll(data: Data) {
     const user_id = await this.userId();
     const roots = ["terms", "tasks", "events"] as const;
-    const ids = async (t: (typeof roots)[number]) => ((check(await this.sb.from(t).select("id")) as { id: string }[]) ?? []).map((r) => r.id);
+    const ids = async (t: (typeof roots)[number]) => (await this.all<{ id: string }>(t, "id")).map((r) => r.id);
     const old = { terms: await ids("terms"), tasks: await ids("tasks"), events: await ids("events") };
     // Ids travel in the URL: 100 per request keeps it well under server limits.
     const remove = async (t: (typeof roots)[number], list: string[]) => {
@@ -210,7 +232,7 @@ export class SupabaseRepo implements Repo {
       throw e;
     }
     for (const t of roots) await remove(t, old[t]);
-    await this.saveSettings({ ...DEFAULT_SETTINGS, ...data.settings });
+    await this.saveSettings(cleanSettings(data.settings));
   }
 
   async syncNotifications(list: PlannedNotification[]) {

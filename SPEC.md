@@ -105,18 +105,29 @@ Unchanged from the Android spec and verified against a brute-force count for eve
 
 - **Row Level Security** on every table: an account reads and writes only its own rows.
 - **Same-owner references**: composite foreign keys make every subject, class, mark and grade belong to the same account as its parent. RLS does not cover foreign-key checks, so without these an account could attach rows to another's classes.
-- **Reminder queue**: accounts may only add, read and delete their own planned reminders, never edit them or mark them sent. Inserts must be in the future, are capped at 3000 unsent per account, and `sent_at` is always cleared. Push endpoints must be HTTPS and on a known push service; sends run in parallel with a 10 s limit; stale rows are purged rather than sent.
+- **Reminder queue**: accounts may only add, read and delete their own planned reminders, never edit them or mark them sent. Inserts may not be dated more than a minute in the past, are capped at 3000 unsent per account, and `sent_at` is always cleared; text and payload sizes are limited. The sender claims batches through `claim_due_notifications` (service role only): oldest first, at most 10 per account per batch of 100, marked sent in the same statement. Push endpoints must be HTTPS on a known push service (checked by the database and again by the function, which skips malformed ones instead of failing); at most 10 devices per account; sends run in parallel with a 10 s limit; only planned reminders can be snoozed; stale rows are purged rather than sent. The browser keeps the soonest 2000 planned reminders, saves them in chunks, and reports a failure once.
 - **Functions without login** (`push`, `calendar`): the sender needs the cron secret; notification buttons need the notification's unguessable id and POST; the calendar needs the feed token. Every service-role query is pinned to the owner.
-- **Sign-in links**: the client does not read sessions from the address bar except from a password-reset link, and removes tokens from the address bar. Link errors show fixed wording. A reset request answers the same whether or not the account exists. The signed-in email is shown in the sidebar and Settings.
-- **Sign-out** removes this device's push subscription and the offline copy.
+- **Sign-in links**: the client does not read sessions from the address bar except from a password-reset link, ignores even that while someone is already signed in, and removes the link's query and hash from the address bar. Link errors show fixed wording. A reset request answers the same whether or not the account exists. The signed-in email is shown in the sidebar and Settings.
+- **Sign-out** removes this device's push subscription and the offline copy, and signs out on this device even without a connection.
+- **Size limits** on every text and JSON column, so one account cannot fill the shared database; the forms use the same limits.
 - **Backup import**: every row is checked, damaged ones are dropped (and counted), ids are regenerated with links kept, and new rows are saved before old ones are removed.
 - **Browser security headers** (`vercel.json`, and `public/_headers` for Netlify and Cloudflare Pages, kept identical by a unit test): a Content-Security-Policy limiting scripts, styles, fonts and workers to the site itself and network calls to the site and `*.supabase.co`, no framing by other sites, `nosniff`, a referrer policy and a permissions policy. Browser tests run under these headers.
 - **Supply chain**: Dependabot opens weekly update pull requests (npm, GitHub Actions); CI runs with a read-only token and fails on high or critical `npm audit` findings in shipped dependencies.
 - **Accessibility**: an axe-core audit (WCAG 2.2 AA) of every screen in light and dark mode reports no violations. Sheets take keyboard focus, keep Tab inside and return focus on close.
 
+## Data integrity
+
+- **Reads are paged**: every table is read in pages of 1000 (the API's limit), in the app, in imports and in the calendar feed.
+- **Timetable changes never rewrite history**: a class with attendance marks is split at the chosen date (which must fall inside the class's own dates). Marks from that date on move to the new class when it meets on the same weekday; others are listed before saving. Changing only the room or type edits in place. Removing a class with marks ends it after its last attended or missed session. A marked session keeps the weight it was recorded with.
+- **Import** shortens over-long text to the database limits instead of dropping the row, checks every settings field, and skips empty entries without failing.
+- **Settings**: the form follows saved settings that change elsewhere (an import, another device) when nothing is being edited.
+- **Reminders**: all-day repeating events keep the day's reminder; long repeating ranges keep the 1000 reminders nearest the deadline; the weekly digest and the what-if planner treat amber "at risk" as below target; reminders are never planned from the offline copy.
+- **Calendar feed**: all-day alerts count from 09:00 like the app; all-day repeats end on a date.
+- **Timetable CSV**: an optional Counts column (1 or 2), times with seconds (Google Sheets), cells with `;` or tabs quoted, and the export lists the classes on today's timetable only.
+
 ## Browser tests
 
-`e2e/` holds 26 click-through tests: every page in light and dark mode, tasks with Undo, marking, timetable and its import, settings, skipped event dates, note links, the what-if planner, grades, offline use, keyboard focus, backup import with damaged entries, and the account screens against a mocked Supabase (sign-in, closed sign-ups, password reset, forged and broken links, offline banner, calendar link, sign-out cleanup). They run with `npm run test:e2e` once the `playwright` dev dependency is approved and added; CI will then run them on every push.
+`e2e/` holds 29 click-through tests: every page in light and dark mode, tasks with Undo, marking, timetable and its import, settings, skipped event dates, note links, the what-if planner, grades, offline use, keyboard focus, backup import with damaged entries, and the account screens against a mocked Supabase (sign-in, closed sign-ups, password reset, forged and broken links, offline banner, calendar link, sign-out cleanup, reset links while signed in), a timetable change that must keep a cancellation, and framing protection. They run with `npm run test:e2e` once the `playwright` dev dependency is approved and added; CI will then run them on every push.
 
 ## Out of scope
 

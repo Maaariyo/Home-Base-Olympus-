@@ -239,11 +239,12 @@ test("skip hint: safe only if one more absence keeps the subject at or above tar
 test("timetable export: same layout the importer reads, safe to open in a spreadsheet", async () => {
   const { toTimetableCsv, parseTimetable } = await import("./timetable-import.ts");
   const rows = [
-    { day: 3, start: "14:00", end: "16:30", subject: "Analytics, Lab", code: "BA", room: 'Lab "4"', kind: "LAB" as const },
-    { day: 1, start: "09:30", end: "10:45", subject: "=HYPERLINK(\"x\")", code: "", room: "", kind: "LECTURE" as const },
+    { day: 3, start: "14:00", end: "16:30", subject: "Analytics; Lab", code: "BA", room: 'Lab "4"', kind: "LAB" as const, weight: 1 },
+    { day: 1, start: "09:30", end: "10:45", subject: "=HYPERLINK(\"x\")", code: "", room: "", kind: "LECTURE" as const, weight: 1 },
   ];
   const csv = toTimetableCsv(rows);
-  assert.equal(csv.split("\n")[1], "Mon,09:30,10:45,\"'=HYPERLINK(\"\"x\"\")\",,,Lecture");
+  assert.equal(csv.split("\n")[1], "Mon,09:30,10:45,\"'=HYPERLINK(\"\"x\"\")\",,,Lecture,1");
+  assert.match(csv, /"Analytics; Lab"/); // quoted, so ;-separated spreadsheets keep it in one cell
   const back = parseTimetable(csv);
   assert.deepEqual(back.errors, []);
   assert.deepEqual(back.rows.map(({ line: _l, ...r }) => r), [rows[1], rows[0]]);
@@ -315,4 +316,42 @@ test("weekly digest lists at-risk (amber) subjects as below target", async () =>
   const sub = { ...row, id: "mkt", term_id: "term", name: "MKT", code: "", color: "#000", target_pct: null, opening_held: 10, opening_attended: 7 };
   const data = { terms: [t], subjects: [sub], grade_items: [], slots: [], marks: [], tasks: [], events: [], settings: { ...S, amberOn: true, amberFloor: 65 } };
   assert.match(weeklyDigest(data, new Date(2026, 10, 18))!.body, /Below target: MKT \(70\.0%\)/);
+});
+
+test("backup import: empty entries, long text and odd settings no longer break or lose a subject", async () => {
+  const { prepareImport, cleanSettings } = await import("./backup.ts");
+  const backup = {
+    terms: [{ id: "t1", name: "T", start_date: "2026-11-01", end_date: "2026-12-31", track_from: "2026-11-01", holidays: [{ date: "2026-11-27", label: "x".repeat(300) }] }],
+    subjects: [null, { id: "s1", term_id: "t1", name: "Strategy", code: "STRATEGY-ADVANCED-2026-X", color: "#1c7ed6", target_pct: null, opening_held: 0, opening_attended: 0 }],
+    slots: [null],
+    marks: [],
+    tasks: [{ id: "k1", title: "Deck", notes: "n".repeat(9000), due_at: "2026-11-20T12:00:00Z", assignees: ["A".repeat(200)], reminders: [], done_at: null }],
+    events: [],
+    settings: { quietStart: 0, quietOn: true, target: 200, amberFloor: "65", taskReminders: "x" },
+  };
+  const { data, dropped } = prepareImport(backup);
+  assert.equal(dropped, 2); // the two null entries only
+  assert.equal(data.subjects[0].code, "STRATEGY-ADVANCED-20"); // shortened, not lost
+  assert.equal(data.terms[0].holidays[0].label.length, 120);
+  assert.equal(data.tasks[0].notes.length, 5000);
+  assert.equal(data.tasks[0].assignees[0].length, 80);
+  assert.equal(data.settings.quietStart, "23:00");
+  assert.equal(data.settings.target, 75);
+  assert.equal(data.settings.amberFloor, 65);
+  assert.deepEqual(data.settings.taskReminders, S.taskReminders);
+  assert.deepEqual(cleanSettings(undefined), S);
+});
+
+test("a marked session keeps the weight it was recorded with", () => {
+  const labNow = { ...mon, weight: 2 };
+  const mark: Mark = { ...row, id: "m1", subject_id: "mkt", slot_id: "mon", date: "2026-11-16", start_time: "10:00", end_time: "11:00", weight: 1, status: "PRESENT" };
+  const s = sessionsBetween("2026-11-16", "2026-11-23", term, [labNow], [mark]);
+  assert.deepEqual(s.map((x) => `${x.date} ${x.weight}`), ["2026-11-16 1", "2026-11-23 2"]);
+});
+
+test("timetable import: Google Sheets times with seconds, and the optional Counts column", async () => {
+  const { parseTimetable } = await import("./timetable-import.ts");
+  const r = parseTimetable("Day,Start,End,Subject,Type,Counts\nMon,9:30:00,10:45:00 AM,Stats,Lab,1\nTue,14:00:00,16:30:00,Lab B,Lab,\n");
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.rows.map((x) => [x.start, x.end, x.kind, x.weight]), [["09:30", "10:45", "LAB", 1], ["14:00", "16:30", "LAB", 2]]);
 });

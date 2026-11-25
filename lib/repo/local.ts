@@ -1,4 +1,5 @@
-import { DEFAULT_SETTINGS, TABLES, type Data, type Settings, type TableName, type Tables } from "../types";
+import { TABLES, type Data, type Settings, type TableName, type Tables } from "../types";
+import { cleanSettings } from "../backup";
 import { seedData } from "./seed";
 import { ConflictError, type AuthState, type NewRow, type Repo } from "./types";
 
@@ -14,7 +15,7 @@ export class LocalRepo implements Repo {
       if (raw) {
         const d = JSON.parse(raw) as Data;
         for (const t of TABLES) (d[t] as unknown[]) ??= []; // data saved before a table existed
-        return { ...d, settings: { ...DEFAULT_SETTINGS, ...d.settings } };
+        return { ...d, settings: cleanSettings(d.settings) };
       }
     } catch {
       /* fall through to seed */
@@ -83,7 +84,7 @@ export class LocalRepo implements Repo {
   }
 
   async replaceAll(data: Data) {
-    const clean = { settings: { ...DEFAULT_SETTINGS, ...data.settings } } as Data;
+    const clean = { settings: cleanSettings(data.settings) } as Data;
     for (const t of TABLES) (clean[t] as unknown[]) = data[t] ?? [];
     this.write(clean);
   }

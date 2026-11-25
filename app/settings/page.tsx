@@ -26,6 +26,13 @@ export default function SettingsPage() {
   const [push, setPush] = useState("loading");
   const file = useRef<HTMLInputElement>(null);
   const dirty = JSON.stringify(s) !== JSON.stringify(data.settings);
+  // When the saved settings change (a backup import, another device) and nothing here is being edited,
+  // follow them; otherwise "Save changes" would quietly put the old values back.
+  const base = useRef(data.settings);
+  useEffect(() => {
+    if (JSON.stringify(s) === JSON.stringify(base.current)) setS(data.settings);
+    base.current = data.settings;
+  }, [data.settings]);
   const set = (patch: Partial<Settings>) => setS({ ...s, ...patch });
 
   useEffect(() => {

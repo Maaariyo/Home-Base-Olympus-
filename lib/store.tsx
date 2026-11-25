@@ -56,12 +56,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const refreshAuth = useCallback(async () => {
     try {
-      setAuth(await repo.getAuth());
+      const a = await repo.getAuth();
+      setAuth(a);
+      if (a.kind === "signed-in" && a.notice) toast(a.notice, "error");
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
       setAuth({ kind: "signed-out" });
     }
-  }, [repo]);
+  }, [repo, toast]);
 
   const refresh = useCallback(async () => {
     try {

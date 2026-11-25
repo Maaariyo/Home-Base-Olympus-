@@ -202,3 +202,16 @@ test("the signed-in account is shown, so a wrong account is noticed", async () =
   await page.getByText(user.email).first().waitFor();
   await page.context().close();
 });
+
+test("a reset link opened while already signed in cannot switch the account", async () => {
+  const { page, calls } = await open();
+  await signIn(page);
+  const userCalls = calls.filter((c) => c === "GET /auth/v1/user").length;
+  const params = new URLSearchParams({ access_token: accessToken(), refresh_token: "someone-else", token_type: "bearer", type: "recovery" });
+  await page.goto(`${site.url}/?utm=x#${params}`);
+  await page.getByText("You're already signed in. To use a password reset link, sign out first, then open the link again.").waitFor();
+  await page.getByRole("heading", { name: "Today" }).waitFor();
+  assert.equal(calls.filter((c) => c === "GET /auth/v1/user").length, userCalls, "the link's tokens were never used");
+  assert.equal(new URL(page.url()).search + new URL(page.url()).hash, "", "query and hash removed");
+  await page.context().close();
+});

@@ -3,7 +3,7 @@ import type { Data, Settings, TableName, Tables } from "../types";
 
 export type AuthState =
   | { kind: "signed-out"; notice?: string }
-  | { kind: "signed-in"; email: string }
+  | { kind: "signed-in"; email: string; notice?: string }
   /** Arrived from a password-reset email: must choose a new password before using the site. */
   | { kind: "recovery"; email: string };
 
