@@ -101,7 +101,7 @@ export default function PlanPage() {
                 <span className="flex items-center gap-1.5 text-sm tabular-nums">
                   <span className="text-muted">{r.pct === null ? "—" : `${r.pct.toFixed(1)}%`}</span>
                   <ArrowRight size={14} className="text-muted" />
-                  <b style={{ color: BAND_STYLE[r.afterBand].color }}>{r.afterPct === null ? "—" : `${r.afterPct.toFixed(1)}%`}</b>
+                  <b style={{ color: BAND_STYLE[r.afterBand].text }}>{r.afterPct === null ? "—" : `${r.afterPct.toFixed(1)}%`}</b>
                 </span>
                 <span className="hidden sm:block">
                   <BandPill band={r.afterBand} />

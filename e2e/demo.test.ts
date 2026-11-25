@@ -188,3 +188,21 @@ test("settings: the calendar feed explains it needs Supabase in demo mode; weekl
   assert.equal(await page.getByLabel(/^Weekly digest/).isChecked(), true);
   await page.context().close();
 });
+
+test("keyboard: an editor takes focus, keeps it while typing, Tab stays inside, Escape returns focus", async () => {
+  const { page } = await open("/tasks");
+  const fab = page.getByLabel("New task");
+  await fab.focus();
+  await page.keyboard.press("Enter");
+  const heading = page.getByPlaceholder("What needs doing?");
+  await heading.waitFor();
+  assert.ok(await heading.evaluate((el) => el === document.activeElement), "focus moves into the editor");
+  await page.keyboard.type("Typed without losing focus");
+  assert.equal(await heading.inputValue(), "Typed without losing focus");
+  for (let i = 0; i < 40; i++) await page.keyboard.press("Tab");
+  assert.ok(await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"]')), "Tab stays inside the editor");
+  await page.keyboard.press("Escape");
+  await page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
+  assert.ok(await fab.evaluate((el) => el === document.activeElement), "focus returns to the + button");
+  await page.context().close();
+});

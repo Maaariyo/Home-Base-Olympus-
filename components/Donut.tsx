@@ -48,7 +48,7 @@ export function Donut({ tally, band, target, size = 120 }: { tally: Tally; band:
 export function BandPill({ band }: { band: Band }) {
   const s = BAND_STYLE[band];
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: `${s.color}17`, color: s.color }}>
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: `${s.color}17`, color: s.text }}>
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: s.color }} />
       {s.label}
     </span>

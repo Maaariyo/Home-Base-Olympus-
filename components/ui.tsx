@@ -66,7 +66,7 @@ export function Chip({
         active ? "border-ink bg-ink text-on-ink" : "border-line bg-card text-ink hover:border-ink/30",
         className,
       )}
-      style={active && color ? { background: color, borderColor: color } : undefined}
+      style={active && color ? { background: `color-mix(in srgb, ${color} 18%, var(--color-card))`, borderColor: color, color: "var(--color-ink)" } : undefined}
     >
       {children}
     </button>

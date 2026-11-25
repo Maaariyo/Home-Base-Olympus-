@@ -6,14 +6,19 @@
   --color-ink: #1f2328;
   --color-muted: #6b7075;
   --color-line: #e7e5e0;
-  --color-accent: #0c8599;
+  --color-accent: #0b7285;
   --color-card: #ffffff;
   --color-on-ink: #ffffff;
-  --color-danger: #c92a2a;
+  --color-danger: #b42323;
   --color-warn: #7c4a03;
   --color-warn-bg: #fff8e1;
-  --color-ok: #2b8a3e;
+  --color-ok: #237032;
   --color-ok-bg: #ebfbee;
+  /* Attendance bands as text (at least 4.5:1 on cards and on their own tinted pills). */
+  --color-band-safe: #237032;
+  --color-band-watch: #9c5200;
+  --color-band-below: #b42323;
+  --color-band-none: #5f656b;
 }
 
 /* Dark mode follows the device setting. Attendance band colours stay fixed on purpose. */
@@ -34,6 +39,10 @@
     --color-warn-bg: rgba(250, 176, 5, 0.12);
     --color-ok: #8ce99a;
     --color-ok-bg: rgba(64, 192, 87, 0.12);
+    --color-band-safe: #69db7c;
+    --color-band-watch: #ffc078;
+    --color-band-below: #ff8787;
+    --color-band-none: #adb5bd;
   }
 }
 

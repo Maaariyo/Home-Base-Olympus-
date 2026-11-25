@@ -1,11 +1,13 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { cx, IconButton } from "./ui";
 
 /**
- * Phone: bottom sheet. Desktop: `panel` docks on the right (map stays usable), `modal` centres.
+ * Phone: bottom sheet. Desktop: `panel` docks on the right, `modal` centres.
+ * Keyboard: focus moves into the sheet when it opens, Tab stays inside a modal, Escape closes,
+ * and focus returns to where it was.
  */
 export function Sheet({
   open,
@@ -22,12 +24,40 @@ export function Sheet({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  const box = useRef<HTMLDivElement>(null);
+  const modal = variant === "modal";
+  // Callers pass a new onClose on every render; read it from a ref so the effect runs only on open/close.
+  const close = useRef(onClose);
+  close.current = onClose;
+  // Remember what had focus as the sheet opens: by the time effects run, an autoFocus field has taken it.
+  const wasOpen = useRef(false);
+  const before = useRef<HTMLElement | null>(null);
+  if (open && !wasOpen.current && typeof document !== "undefined") before.current = document.activeElement as HTMLElement | null;
+  wasOpen.current = open;
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Leave autoFocus fields alone; otherwise focus the sheet itself so screen readers announce it.
+    if (!box.current?.contains(document.activeElement)) box.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return close.current();
+      if (e.key !== "Tab" || !modal || !box.current) return;
+      const items = box.current.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex='-1'])");
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === box.current)) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (before.current?.isConnected) before.current.focus();
+    };
+  }, [open, modal]);
 
   if (!open) return null;
   const panel = variant === "panel";
@@ -36,10 +66,13 @@ export function Sheet({
     <div className={cx("fixed inset-0 z-[1000]", panel && "pointer-events-none")}>
       {!panel && <div className="animate-fade absolute inset-0 bg-black/40" onClick={onClose} />}
       <div
+        ref={box}
+        tabIndex={-1}
         role="dialog"
         aria-modal={!panel}
+        aria-label={typeof title === "string" ? title : undefined}
         className={cx(
-          "animate-sheet pointer-events-auto absolute flex flex-col bg-card shadow-2xl",
+          "animate-sheet pointer-events-auto absolute flex flex-col bg-card shadow-2xl outline-none",
           "inset-x-0 bottom-0 rounded-t-3xl",
           panel ? "max-h-[55dvh]" : "max-h-[92dvh]",
           panel

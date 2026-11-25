@@ -77,9 +77,10 @@ export function adviceText(a: Advice, t: number, weighted: boolean): string {
   return `You can skip ${unit(a.n)} and stay at ${t}%+`;
 }
 
-export const BAND_STYLE: Record<Band, { color: string; label: string }> = {
-  SAFE: { color: "#2f9e44", label: "Safe" },
-  WATCH: { color: "#e67700", label: "At risk" },
-  BELOW: { color: "#e03131", label: "Below target" },
-  NONE: { color: "#adb5bd", label: "No classes yet" },
+/** `color` fills the donut ring; `text` is a darker (light mode) or lighter (dark mode) shade readable as text. */
+export const BAND_STYLE: Record<Band, { color: string; text: string; label: string }> = {
+  SAFE: { color: "#2f9e44", text: "var(--color-band-safe)", label: "Safe" },
+  WATCH: { color: "#e67700", text: "var(--color-band-watch)", label: "At risk" },
+  BELOW: { color: "#e03131", text: "var(--color-band-below)", label: "Below target" },
+  NONE: { color: "#adb5bd", text: "var(--color-band-none)", label: "No classes yet" },
 };

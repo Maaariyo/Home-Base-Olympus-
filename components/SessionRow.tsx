@@ -58,7 +58,7 @@ export function SessionRow({ session, subject, showDate, byDate }: { session: Se
           type="button"
           aria-label="More options"
           onClick={() => setMenu((m) => !m)}
-          className={cx("rounded-lg border px-1.5 py-1.5", session.status === "DUTY_LEAVE" ? "border-accent bg-accent text-white" : "border-line bg-card")}
+          className={cx("rounded-lg border px-1.5 py-1.5", session.status === "DUTY_LEAVE" ? "border-accent bg-accent text-paper" : "border-line bg-card")}
         >
           <MoreHorizontal size={15} />
         </button>

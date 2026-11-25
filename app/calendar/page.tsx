@@ -232,11 +232,11 @@ function DayTimeline({ items }: { items: Item[] }) {
               key={i.key}
               type="button"
               onClick={i.open}
-              className={cx("absolute right-2 overflow-hidden rounded-lg px-2 py-1 text-left text-xs font-bold text-white shadow-sm", i.done && "opacity-50 line-through")}
-              style={{ top: Math.max(0, top(i.start)), height: Math.max(22, top(i.end) - top(i.start)), left: 64 + overlap * 24, background: i.color }}
+              className={cx("absolute right-2 overflow-hidden rounded-lg border-l-4 px-2 py-1 text-left text-xs font-bold text-ink", i.done && "opacity-50 line-through")}
+              style={{ top: Math.max(0, top(i.start)), height: Math.max(22, top(i.end) - top(i.start)), left: 64 + overlap * 24, background: `color-mix(in srgb, ${i.color} 18%, var(--color-card))`, borderColor: i.color }}
             >
               {i.title}
-              <span className="block font-medium opacity-85">
+              <span className="block font-medium">
                 {fmtTime(i.start)}–{fmtTime(i.end)}
               </span>
             </button>
