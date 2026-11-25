@@ -42,8 +42,12 @@ Run `npm run dev` again. You now get a sign-in screen; each account sees only it
 
 `npm run build` writes a plain static site to `out/`. Any static host works.
 
-- **Vercel** (simplest): import the GitHub repo, add the env vars from `.env.local`, deploy.
-- **Netlify / Cloudflare Pages**: build command `npm run build`, output folder `out`, same env vars.
+- **Vercel** (simplest): import the GitHub repo, add the env vars from `.env.local`, deploy. `vercel.json` adds the security headers.
+- **Netlify / Cloudflare Pages**: build command `npm run build`, output folder `out`, same env vars. `public/_headers` adds the same security headers.
+
+The security headers only allow network calls to `*.supabase.co`. If you put Supabase behind your own domain, add it to `connect-src` in both `vercel.json` and `public/_headers`.
+
+Once the repository is on GitHub, Dependabot (`.github/dependabot.yml`) opens a pull request each week when a library has an update; CI tests it, and you merge it.
 
 Then in Supabase, **Authentication → URL Configuration → Site URL**: set it to your live address.
 

@@ -110,6 +110,8 @@ Unchanged from the Android spec and verified against a brute-force count for eve
 - **Sign-in links**: the client does not read sessions from the address bar except from a password-reset link, and removes tokens from the address bar. Link errors show fixed wording. A reset request answers the same whether or not the account exists. The signed-in email is shown in the sidebar and Settings.
 - **Sign-out** removes this device's push subscription and the offline copy.
 - **Backup import**: every row is checked, damaged ones are dropped (and counted), ids are regenerated with links kept, and new rows are saved before old ones are removed.
+- **Browser security headers** (`vercel.json`, and `public/_headers` for Netlify and Cloudflare Pages, kept identical by a unit test): a Content-Security-Policy limiting scripts, styles, fonts and workers to the site itself and network calls to the site and `*.supabase.co`, no framing by other sites, `nosniff`, a referrer policy and a permissions policy. Browser tests run under these headers.
+- **Supply chain**: Dependabot opens weekly update pull requests (npm, GitHub Actions); CI runs with a read-only token and fails on high or critical `npm audit` findings in shipped dependencies.
 - **Accessibility**: an axe-core audit (WCAG 2.2 AA) of every screen in light and dark mode reports no violations. Sheets take keyboard focus, keep Tab inside and return focus on close.
 
 ## Browser tests
