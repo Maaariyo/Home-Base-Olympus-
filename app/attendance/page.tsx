@@ -1,6 +1,6 @@
 "use client";
 
-import { Grid3x3, PieChart } from "lucide-react";
+import { ChevronRight, Grid3x3, PieChart } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Fab, PageHeader } from "@/components/AppShell";
@@ -50,6 +50,14 @@ export default function AttendancePage() {
                 <div className="mt-1 text-sm text-muted">All subjects combined. Your institute&apos;s rule is usually per subject: check each card below.</div>
               </div>
             </Card>
+
+            <Link href="/plan" className="flex items-center gap-3 rounded-2xl border border-line bg-card px-4 py-3 hover:border-ink/30">
+              <span className="min-w-0 flex-1">
+                <span className="block font-bold">What if I skip?</span>
+                <span className="block text-sm text-muted">Pick classes you plan to miss and see each subject&apos;s percentage before you decide.</span>
+              </span>
+              <ChevronRight size={18} className="shrink-0 text-muted" />
+            </Link>
 
             {unmarked.length > 0 && (
               <section id="unmarked">

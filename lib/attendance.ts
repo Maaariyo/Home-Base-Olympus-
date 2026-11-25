@@ -20,6 +20,16 @@ export function tally(
   return { held, attended };
 }
 
+/** The tally if every upcoming session is attended except the skipped ones (what-if planning). */
+export function project(t: Tally, upcoming: { key: string; weight: number }[], skip: Set<string>): Tally {
+  let { held, attended } = t;
+  for (const s of upcoming) {
+    held += s.weight;
+    if (!skip.has(s.key)) attended += s.weight;
+  }
+  return { held, attended };
+}
+
 /** Percentage to one decimal, or null when nothing has been held. */
 export function percent({ held, attended }: Tally): number | null {
   return held === 0 ? null : Math.round((1000 * attended) / held) / 10;

@@ -1,7 +1,7 @@
 // Acceptance tests from SPEC.md. Run: npm test (fixed to Asia/Kolkata so times are stable).
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { advice, adviceText, band, percent, tally } from "./attendance.ts";
+import { advice, adviceText, band, percent, project, tally } from "./attendance.ts";
 import { hm, ymd } from "./dates.ts";
 import { applyQuiet, fireTimes, occurrences } from "./reminders.ts";
 import { remainingWeight, sessionsBetween } from "./sessions.ts";
@@ -96,6 +96,20 @@ test("formulas match a brute-force count for every target 50-95", () => {
         }
         assert.equal(a.kind === "none" ? -1 : a.n, n, `t=${t} A=${A} H=${H}`);
       }
+});
+
+test("what-if: skipped sessions count as absent, the rest as attended", () => {
+  const upcoming = [
+    { key: "a", weight: 1 },
+    { key: "b", weight: 1 },
+    { key: "lab", weight: 2 },
+    { key: "c", weight: 1 },
+  ];
+  // 30 of 45, attend a, b and c, skip the lab: 33 of 50.
+  const t = project({ attended: 30, held: 45 }, upcoming, new Set(["lab"]));
+  assert.deepEqual(t, { attended: 33, held: 50 });
+  assert.equal(percent(t), 66);
+  assert.deepEqual(project({ attended: 3, held: 4 }, [], new Set()), { attended: 3, held: 4 });
 });
 
 // Reminders. "Today" is Wed 18 Nov 2026 in these tests.
