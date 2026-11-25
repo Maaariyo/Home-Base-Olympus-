@@ -5,7 +5,7 @@ Tasks, calendar and attendance for one student, as a website. Works on phone and
 - **Today**: next class, today's classes with Present / Absent / Cancelled, tasks due, events, subjects below target.
 - **Tasks**: heading, notes, due time, assignees, any number of reminders. Overdue / Today / Upcoming / Done, search, filter by person, swipe to complete or delete with Undo.
 - **Calendar**: month, week and day views with three layers: events, task due times and classes.
-- **Attendance**: per-subject donut, "attend the next N" / "you can skip N", overall view, session history.
+- **Attendance**: per-subject donut, "attend the next N" / "you can skip N", overall view, session history, and a **What if I skip?** planner that shows each subject's percentage before you miss a class.
 - **Timetable**: term, holidays, subjects with opening balances, weekly classes, mid-term timetable changes.
 - Dark mode, phone and desktop layouts, installable from the browser.
 
@@ -28,6 +28,9 @@ Open http://localhost:3000. With no database connected, the site runs in **demo 
 2. **SQL Editor → New query**: paste all of [`supabase/schema.sql`](supabase/schema.sql) and press **Run**.
 3. **Authentication → Sign In / Providers → Email**: for a personal planner, turn **Confirm email** off. Supabase's built-in email sender allows only a few emails per hour.
 4. Click **Connect** at the top of the project page (or **Settings → API Keys**): copy the Project URL and the **publishable** key (`sb_publishable_…`) into `.env.local`, using [`.env.example`](.env.example) as the template. Never use a secret key in the site.
+5. **Close sign-ups** once your own account exists: **Authentication → Sign In / Providers** (in some dashboard versions **Authentication → Settings**), turn off **Allow new users to sign up**. Anyone else who tries sees "New sign-ups are closed on this site." Turn it back on when a classmate wants to join.
+
+**Password reset.** "Forgot password?" on the sign-in screen emails a link that opens a "Set a new password" screen. Two Supabase limits apply to its built-in email: it delivers **only to members of your Supabase team**, and only about **2 emails an hour**. So sign up in Home Base with the same email you use for Supabase. For classmates, add a custom SMTP provider under **Authentication → Emails**. The link returns to your Site URL; for local testing, add `http://localhost:3000` under **Authentication → URL Configuration → Redirect URLs**.
 
 Run `npm run dev` again. You now get a sign-in screen; each account sees only its own data.
 
@@ -84,7 +87,9 @@ npm test
 npm run lint
 ```
 
-`npm test` runs the acceptance tests in [`lib/logic.test.ts`](lib/logic.test.ts) (attendance maths, reminder timing, timetable rules). [`SPEC.md`](SPEC.md) is the product spec; [`CLAUDE.md`](CLAUDE.md) holds the rules for AI coding sessions.
+`npm test` runs the acceptance tests in [`lib/logic.test.ts`](lib/logic.test.ts) (attendance maths, reminder timing, timetable rules).
+
+Browser tests in [`e2e/`](e2e) click through the demo site and the sign-in, closed sign-up and password-reset screens (against a mocked Supabase). They need the `playwright` dev dependency, which is not added yet; once it is, run `npm run test:e2e`. [`SPEC.md`](SPEC.md) is the product spec; [`CLAUDE.md`](CLAUDE.md) holds the rules for AI coding sessions.
 
 ## Limits to know
 

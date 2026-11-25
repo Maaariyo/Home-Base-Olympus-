@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "tsc --noEmit",
-    "test": "TZ=Asia/Kolkata node --test lib/*.test.ts"
+    "test": "TZ=Asia/Kolkata node --test lib/*.test.ts",
+    "test:e2e": "sh e2e/build.sh && node --test e2e/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

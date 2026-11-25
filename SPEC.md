@@ -36,6 +36,15 @@ Supersedes the Android build spec of 18 Nov 2026. Same features, delivered as a 
 - **Links in task and event notes** open in a new tab.
 - **CI**: every push runs the tests, the typecheck and the build (`.github/workflows/ci.yml`).
 
+## Accounts
+
+- **Sign-ups can be closed** in Supabase (Allow new users to sign up: off). A refused sign-up shows "New sign-ups are closed on this site."
+- **Password reset**: "Forgot password?" calls Supabase's reset email; the link returns to the site, which shows "Set a new password" (new password typed twice) before anything else. An expired or used link shows a plain message on the sign-in screen. The reset screen never reveals whether an account exists.
+
+## What if I skip?
+
+Reached from Attendance. Pick a period (this week, next 2 weeks, rest of term), then tick classes or whole days you plan to miss. Every other class in the period counts as attended. Each subject shows its percentage now and after, with the band colour. The summary names only subjects the skips push below target; subjects below target even with full attendance get a separate note. Nothing is saved. Maths: `project()` in `lib/attendance.ts`.
+
 ## Architecture
 
 - **Pages** (`app/`): Today, Calendar, Tasks, Attendance, Timetable, Settings. All client-rendered; `next build` emits static HTML/JS to `out/`.
@@ -81,6 +90,10 @@ Unchanged from the Android spec and verified against a brute-force count for eve
 | 16 class prompt marks attendance | Edge Function action `PRESENT` / `ABSENT`. Needs a live project to test end to end |
 | 17 offline | Replaced: demo mode works offline; hosted mode needs a connection |
 | 18–19 two devices | Verified against the schema in Postgres (stale save refused, delete wins) |
+
+## Browser tests
+
+`e2e/` holds 13 click-through tests: every page in light and dark mode, tasks with Undo, marking, timetable, settings, skipped event dates, note links, the what-if planner, and the account screens against a mocked Supabase. They run with `npm run test:e2e` once the `playwright` dev dependency is approved and added; CI will then run them on every push.
 
 ## Out of scope
 

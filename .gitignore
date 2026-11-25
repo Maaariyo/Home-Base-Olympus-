@@ -8,3 +8,6 @@ out/
 next-env.d.ts
 .vercel
 .DS_Store
+
+# Browser test builds
+e2e/.out-*
