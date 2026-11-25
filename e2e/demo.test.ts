@@ -228,3 +228,16 @@ test("backup import: damaged entries are reported and skipped, the rest imports"
   assert.deepEqual(saved.tasks.find((t: { title: string }) => t.title === backup.tasks[0].title).reminders, []);
   await page.context().close();
 });
+
+test("security headers: another site cannot show this one in a frame", async () => {
+  const { page } = await openPage(browser);
+  const blocked: string[] = [];
+  page.on("console", (m) => /frame-ancestors|Refused to display/i.test(m.text()) && blocked.push(m.text()));
+  await page.setContent(`<iframe src="${site.url}/" width="400" height="400"></iframe>`);
+  await page.waitForTimeout(1500);
+  const frame = page.frames().find((f) => f !== page.mainFrame())!;
+  const h1 = await frame.locator("h1").count().catch(() => 0);
+  assert.equal(h1, 0, "the app must not render inside a frame");
+  assert.ok(blocked.length > 0 || frame.url().startsWith("chrome-error://"), "the browser reports the frame was refused");
+  await page.context().close();
+});

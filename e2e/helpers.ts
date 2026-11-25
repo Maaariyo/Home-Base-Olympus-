@@ -1,4 +1,5 @@
 // Shared setup for the browser tests: a static server shaped like Vercel, and a page that records errors.
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -17,14 +18,21 @@ const TYPES: Record<string, string> = {
   ".txt": "text/plain",
 };
 
-/** Serves a static export the way Vercel does: /calendar -> calendar.html. */
+// The production security headers from vercel.json, so every test runs under the real Content-Security-Policy.
+// Only change: the fake Supabase host the auth tests answer is added to connect-src.
+const vercel = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8")) as { headers: { source: string; headers: { key: string; value: string }[] }[] };
+const HEADERS = Object.fromEntries(
+  vercel.headers.find((h) => h.source === "/(.*)")!.headers.map((h) => [h.key, h.value.replace("connect-src 'self'", "connect-src 'self' http://supabase.test")]),
+);
+
+/** Serves a static export the way Vercel does: /calendar -> calendar.html, with the production headers. */
 export async function serve(root: string) {
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname);
     for (const file of [path, `${path}.html`, join(path, "index.html")]) {
       try {
         const body = await readFile(join(root, file));
-        res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream" });
+        res.writeHead(200, { ...HEADERS, "content-type": TYPES[extname(file)] ?? "application/octet-stream" });
         return void res.end(body);
       } catch {
         /* try the next candidate */
