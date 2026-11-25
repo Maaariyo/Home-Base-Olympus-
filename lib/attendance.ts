@@ -30,6 +30,15 @@ export function project(t: Tally, upcoming: { key: string; weight: number }[], s
   return { held, attended };
 }
 
+/** Whether missing one class keeps the subject at or above target, as a one-line hint. */
+export function skipHint(t: Tally, weight: number, target: number): { text: string; ok: boolean } {
+  const after = project(t, [{ key: "x", weight }], new Set(["x"]));
+  const pct = percent(after)!;
+  return 100 * after.attended >= target * after.held
+    ? { text: `Safe to skip: you'd be at ${pct.toFixed(1)}%`, ok: true }
+    : { text: `Skipping takes you to ${pct.toFixed(1)}%, below ${target}%`, ok: false };
+}
+
 /** Percentage to one decimal, or null when nothing has been held. */
 export function percent({ held, attended }: Tally): number | null {
   return held === 0 ? null : Math.round((1000 * attended) / held) / 10;

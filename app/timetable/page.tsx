@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { Download, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/AppShell";
 import { Sheet } from "@/components/Sheet";
@@ -8,8 +8,18 @@ import { Button, Card, Chip, Field, IconButton, Input, inputClass, SectionLabel 
 import { addDays, DAY_NAMES, fmtDate, fmtHm, today } from "@/lib/dates";
 import { activeTerm } from "@/lib/sessions";
 import { useData } from "@/lib/store";
-import { parseTimetable, TEMPLATE } from "@/lib/timetable-import";
+import { parseTimetable, TEMPLATE, toTimetableCsv } from "@/lib/timetable-import";
 import type { Holiday, Slot, SlotKind, Subject, Term } from "@/lib/types";
+
+/** Downloads the current timetable in the import layout, so a classmate can import it. */
+function shareCsv(slots: Slot[], subject: Map<string, Subject>) {
+  const rows = slots.map((s) => ({ day: s.day, start: s.start_time, end: s.end_time, subject: subject.get(s.subject_id)?.name ?? "", code: subject.get(s.subject_id)?.code ?? "", room: s.room, kind: s.kind }));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([toTimetableCsv(rows)], { type: "text/csv" }));
+  a.download = "timetable.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 const COLORS = ["#1c7ed6", "#e8590c", "#2b8a3e", "#7048e8", "#c2255c", "#0c8599", "#e67700", "#5c940d", "#495057"];
 
@@ -67,7 +77,12 @@ export default function TimetablePage() {
 
         {term && subjects.length > 0 && (
           <section>
-            <SectionLabel>Weekly classes</SectionLabel>
+            <div className="mb-2 flex items-center justify-between">
+              <SectionLabel className="mb-0">Weekly classes</SectionLabel>
+              <Button variant="ghost" className="py-1.5" onClick={() => shareCsv(slots, subject)}>
+                <Download size={16} /> Share as CSV
+              </Button>
+            </div>
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {days.map((d) => (
                 <div key={d}>

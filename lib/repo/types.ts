@@ -50,6 +50,8 @@ export interface Repo {
   /** Replaces the planned (unsent) reminders on the server. No-op in demo mode. */
   syncNotifications(list: PlannedNotification[]): Promise<void>;
   savePushSubscription(sub: PushSubscriptionJSON): Promise<void>;
+  /** Queues a notification to every device this account turned reminders on for, within a minute. */
+  sendTestReminder(): Promise<void>;
   /** The private calendar-feed address (created on first use); `reset` replaces it. Null in demo mode. */
   calendarFeed(reset: boolean): Promise<string | null>;
 }

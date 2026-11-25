@@ -103,6 +103,11 @@ export default function SettingsPage() {
                   Turn on
                 </Button>
               )}
+              {repo.mode === "supabase" && push === "on" && (
+                <Button variant="secondary" onClick={() => void run((r) => r.sendTestReminder(), "Test sent. It should arrive within a minute.")}>
+                  Send a test
+                </Button>
+              )}
             </div>
             <Toggle label="Class prompt" hint="At the end of each class: “Did you attend?” with Present and Absent buttons." checked={s.classPrompt} onChange={(v) => set({ classPrompt: v })} />
             <Toggle label="Weekly digest" hint="Sunday at 7 pm: deadlines, events and classes in the week ahead, plus subjects below target." checked={s.weeklyDigest} onChange={(v) => set({ weeklyDigest: v })} />

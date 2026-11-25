@@ -24,6 +24,27 @@ const COLUMNS: Record<keyof Omit<ImportRow, "line">, string[]> = {
   kind: ["type", "kind", "session type"],
 };
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const KIND_LABELS: Record<SlotKind, string> = { LECTURE: "Lecture", TUTORIAL: "Tutorial", LAB: "Lab" };
+
+/**
+ * A cell starting with = + - or @ runs as a formula when a spreadsheet opens the file, so the export
+ * prefixes it with ' (spreadsheets hide it) and the import removes it again.
+ */
+const FORMULA = /^[=+\-@]/;
+const csvCell = (v: string) => {
+  const s = FORMULA.test(v) ? `'${v}` : v;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/** The timetable in the same layout the importer reads, for sharing with a classmate. */
+export function toTimetableCsv(rows: Omit<ImportRow, "line">[]): string {
+  const lines = rows
+    .slice()
+    .sort((a, b) => a.day - b.day || a.start.localeCompare(b.start))
+    .map((r) => [DAY_LABELS[r.day - 1], r.start, r.end, r.subject, r.code, r.room, KIND_LABELS[r.kind]].map(csvCell).join(","));
+  return ["Day,Start,End,Subject,Code,Room,Type", ...lines].join("\n") + "\n";
+}
 
 /** Splits one line, honouring "quoted, fields" and "" escapes. */
 function splitLine(line: string, sep: string): string[] {
@@ -82,7 +103,10 @@ export function parseTimetable(text: string): { rows: ImportRow[]; errors: strin
   lines.forEach((raw, i) => {
     if (i <= headerAt || raw.trim() === "") return;
     const f = splitLine(raw, sep);
-    const get = (k: keyof typeof COLUMNS) => (col[k] >= 0 ? (f[col[k]] ?? "") : "");
+    const get = (k: keyof typeof COLUMNS) => {
+      const v = col[k] >= 0 ? (f[col[k]] ?? "") : "";
+      return v.startsWith("'") && FORMULA.test(v.slice(1)) ? v.slice(1) : v;
+    };
     const line = i + 1;
     const day = parseDay(get("day"));
     const start = parseTime(get("start"));

@@ -18,7 +18,20 @@ const OPTIONS: { status: Status; label: string; tone: string }[] = [
  * One class with its three-way mark control; duty leave sits in the overflow menu.
  * `byDate` leads with the date instead of the subject (for one subject's history).
  */
-export function SessionRow({ session, subject, showDate, byDate }: { session: Session; subject?: Subject; showDate?: boolean; byDate?: boolean }) {
+export function SessionRow({
+  session,
+  subject,
+  showDate,
+  byDate,
+  hint,
+}: {
+  session: Session;
+  subject?: Subject;
+  showDate?: boolean;
+  byDate?: boolean;
+  /** An extra line under the time, e.g. whether skipping this class is safe. */
+  hint?: { text: string; ok: boolean };
+}) {
   const { mark, now } = useData();
   const [menu, setMenu] = useState(false);
   const future = !started(session, now);
@@ -37,6 +50,7 @@ export function SessionRow({ session, subject, showDate, byDate }: { session: Se
           {session.room && ` · ${session.room}`}
           {session.weight > 1 && ` · counts ${session.weight}×`}
         </div>
+        {hint && <div className={cx("text-xs font-semibold", hint.ok ? "text-ok" : "text-danger")}>{hint.text}</div>}
       </div>
       <div className="relative ml-auto flex items-center gap-1">
         {OPTIONS.map((o) => (

@@ -12,7 +12,8 @@ import { Button, Card, SectionLabel } from "@/components/ui";
 import { at, fmtDate, fmtHm, fmtTime, ymd } from "@/lib/dates";
 import { enablePush, pushState } from "@/lib/push";
 import { occurrences } from "@/lib/reminders";
-import { ended, started } from "@/lib/sessions";
+import { ended, started, type Session } from "@/lib/sessions";
+import { skipHint } from "@/lib/attendance";
 import { termStats } from "@/lib/stats";
 import { useData } from "@/lib/store";
 
@@ -35,6 +36,12 @@ export default function TodayPage() {
     .flatMap((e) => occurrences(e, dayStart, dayEnd).map((o) => ({ e, o })))
     .sort((a, b) => a.o.start.getTime() - b.o.start.getTime());
   const below = stats.subjects.filter((s) => s.band === "BELOW" || s.band === "WATCH");
+  // For classes still to come today: would missing this one keep the subject on target?
+  const statsBySubject = new Map(stats.subjects.map((x) => [x.subject.id, x]));
+  const hintFor = (s: Session) => {
+    const st = statsBySubject.get(s.subject_id);
+    return st && !started(s, now) && s.status === "UNMARKED" ? skipHint(st.tally, s.weight, st.target) : undefined;
+  };
 
   return (
     <>
@@ -79,7 +86,7 @@ export default function TodayPage() {
             <SectionLabel>Today&apos;s classes</SectionLabel>
             <Card className="divide-y divide-line px-3">
               {classes.map((s) => (
-                <SessionRow key={s.key} session={s} subject={subject.get(s.subject_id)} />
+                <SessionRow key={s.key} session={s} subject={subject.get(s.subject_id)} hint={hintFor(s)} />
               ))}
             </Card>
           </section>

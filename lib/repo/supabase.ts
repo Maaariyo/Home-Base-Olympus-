@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { PlannedNotification } from "../reminders";
+import { NO_OWNER, type PlannedNotification } from "../reminders";
 import { DEFAULT_SETTINGS, TABLES, type Data, type Settings, type TableName, type Tables } from "../types";
 import { ConflictError, OfflineError, type AuthState, type NewRow, type Repo } from "./types";
 
@@ -174,6 +174,24 @@ export class SupabaseRepo implements Repo {
       check(await this.sb.from("notifications").upsert(payload, { onConflict: "user_id,key", ignoreDuplicates: true }));
     }
     this.lastSync = signature;
+  }
+
+  async sendTestReminder() {
+    const user_id = await this.userId();
+    // source "snooze" so the next reminder re-plan does not delete it before the sender runs.
+    check(
+      await this.sb.from("notifications").insert({
+        user_id,
+        key: `test:${Date.now()}`,
+        fire_at: new Date().toISOString(),
+        kind: "DIGEST",
+        owner_id: NO_OWNER,
+        title: "Test reminder",
+        body: "Reminders reach this device. You can turn them off in Settings.",
+        url: "/settings",
+        source: "snooze",
+      }),
+    );
   }
 
   async calendarFeed(reset: boolean) {

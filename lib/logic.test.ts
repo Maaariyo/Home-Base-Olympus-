@@ -226,3 +226,25 @@ test("timetable import: CSV with quotes, pasted cells, times and days in common 
   assert.equal(parseTimetable(TEMPLATE).rows.length, 2);
   assert.match(parseTimetable("Subject,Room\nX,Y").errors[0], /column headings including “Day”, “Start”, “End”/);
 });
+
+test("skip hint: safe only if one more absence keeps the subject at or above target", async () => {
+  const { skipHint } = await import("./attendance.ts");
+  assert.deepEqual(skipHint({ attended: 40, held: 48 }, 1, 75), { text: "Safe to skip: you'd be at 81.6%", ok: true });
+  assert.deepEqual(skipHint({ attended: 3, held: 4 }, 1, 75), { text: "Skipping takes you to 60.0%, below 75%", ok: false });
+  // A lab counts twice: 9/11 is safe for one lecture (75.0%) but not for a lab (69.2%).
+  assert.equal(skipHint({ attended: 9, held: 11 }, 1, 75).ok, true);
+  assert.equal(skipHint({ attended: 9, held: 11 }, 2, 75).ok, false);
+});
+
+test("timetable export: same layout the importer reads, safe to open in a spreadsheet", async () => {
+  const { toTimetableCsv, parseTimetable } = await import("./timetable-import.ts");
+  const rows = [
+    { day: 3, start: "14:00", end: "16:30", subject: "Analytics, Lab", code: "BA", room: 'Lab "4"', kind: "LAB" as const },
+    { day: 1, start: "09:30", end: "10:45", subject: "=HYPERLINK(\"x\")", code: "", room: "", kind: "LECTURE" as const },
+  ];
+  const csv = toTimetableCsv(rows);
+  assert.equal(csv.split("\n")[1], "Mon,09:30,10:45,\"'=HYPERLINK(\"\"x\"\")\",,,Lecture");
+  const back = parseTimetable(csv);
+  assert.deepEqual(back.errors, []);
+  assert.deepEqual(back.rows.map(({ line: _l, ...r }) => r), [rows[1], rows[0]]);
+});

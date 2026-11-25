@@ -90,6 +90,7 @@ export class LocalRepo implements Repo {
 
   async syncNotifications() {}
   async savePushSubscription() {}
+  async sendTestReminder() {}
   async calendarFeed() {
     return null;
   }
