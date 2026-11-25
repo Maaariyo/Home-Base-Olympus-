@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { useStore } from "@/lib/store";
 import { Editors } from "./Editors";
-import { LoginScreen } from "./LoginScreen";
+import { LoginScreen, SetPasswordScreen } from "./LoginScreen";
 import { cx } from "./ui";
 
 const NAV = [
@@ -25,7 +25,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   if (!auth) return <FullScreenLoader />;
-  if (auth.kind === "signed-out") return <LoginScreen />;
+  if (auth.kind === "signed-out") return <LoginScreen notice={auth.notice} />;
+  if (auth.kind === "recovery") return <SetPasswordScreen email={auth.email} />;
   if (!data) {
     return loadError ? (
       <div className="grid h-dvh place-items-center p-6 text-center">
@@ -42,7 +43,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  // The what-if planner lives under Attendance.
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href) || (href === "/attendance" && pathname.startsWith("/plan")));
 
   return (
     <div className="flex h-dvh overflow-hidden">

@@ -1,7 +1,11 @@
 import type { PlannedNotification } from "../reminders";
 import type { Data, Settings, TableName, Tables } from "../types";
 
-export type AuthState = { kind: "signed-out" } | { kind: "signed-in"; email: string };
+export type AuthState =
+  | { kind: "signed-out"; notice?: string }
+  | { kind: "signed-in"; email: string }
+  /** Arrived from a password-reset email: must choose a new password before using the site. */
+  | { kind: "recovery"; email: string };
 
 /** The row changed or was deleted on another device since this one loaded it. */
 export class ConflictError extends Error {
@@ -20,6 +24,10 @@ export interface Repo {
   /** "check-email" when the Supabase project requires email confirmation. */
   signUp(email: string, password: string): Promise<"signed-in" | "check-email">;
   signOut(): Promise<void>;
+  /** Emails a link that opens this site on a "set a new password" screen. */
+  requestPasswordReset(email: string): Promise<void>;
+  /** Sets the signed-in user's password and ends recovery mode. */
+  updatePassword(password: string): Promise<void>;
   onAuthChange(cb: () => void): () => void;
 
   load(): Promise<Data>;

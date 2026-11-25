@@ -39,6 +39,8 @@ export class LocalRepo implements Repo {
     return "signed-in" as const;
   }
   async signOut() {}
+  async requestPasswordReset() {}
+  async updatePassword() {}
   onAuthChange() {
     return () => {};
   }
